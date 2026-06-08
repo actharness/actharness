@@ -22,5 +22,10 @@
   "engines": {
     "node": ">=20",
     "pnpm": ">=9"
+  },
+  "pnpm": {
+    "overrides": {
+      "human-id": "3"
+    }
   }
 }

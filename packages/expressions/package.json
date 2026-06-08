@@ -1,6 +1,6 @@
 {
   "name": "@actspec/expressions",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "GitHub Actions ${{ }} expression engine — standalone, zero runtime deps",
   "type": "module",
   "sideEffects": false,
