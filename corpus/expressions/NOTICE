@@ -1,0 +1,12 @@
+Expression conformance vectors in this directory are derived from:
+
+- nektos/act — https://github.com/nektos/act (MIT License)
+    pkg/exprparser/interpreter_test.go, pkg/exprparser/functions_test.go
+- actions/runner — https://github.com/actions/runner (MIT License)
+    src/Sdk/DTExpressions2/Expressions2/** (EvaluationResult.cs, Sdk/ExpressionUtility.cs,
+    ExpressionConstants.cs), src/Test/L0/**/Expressions*
+
+Both projects are MIT-licensed. Their copyright notices and license terms are
+retained per the MIT License. These vectors encode observable behavior for
+interoperability/conformance testing; the semantic source of truth is the
+actions/runner C# implementation.

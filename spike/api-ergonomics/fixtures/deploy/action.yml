@@ -1,0 +1,46 @@
+name: Deploy
+description: >
+  Composite action exercising if: conditions, continue-on-error, and GITHUB_ENV threading.
+  Exercises: toHaveSkippedStep, toHaveRunStep, outcome vs conclusion, env threading.
+
+inputs:
+  environment:
+    description: Target deployment environment
+    required: true
+  dry-run:
+    description: Skip the actual deployment step
+    default: 'false'
+
+outputs:
+  url:
+    description: Deployment URL (empty when dry-run is true)
+    value: ${{ steps.deploy.outputs.url }}
+
+runs:
+  using: composite
+  steps:
+    - id: checkout
+      uses: actions/checkout@v4
+
+    - id: build
+      shell: bash
+      run: |
+        echo "ARTIFACT=app-${{ inputs.environment }}.tgz" >> "$GITHUB_ENV"
+        echo "sha=deadbeef" >> "$GITHUB_OUTPUT"
+
+    - id: lint
+      continue-on-error: true
+      shell: bash
+      run: exit 1
+
+    - id: deploy
+      if: ${{ inputs.dry-run != 'true' }}
+      shell: bash
+      run: |
+        echo "Deploying $ARTIFACT to ${{ inputs.environment }}"
+        echo "url=https://${{ inputs.environment }}.example.com" >> "$GITHUB_OUTPUT"
+
+    - id: dry-run-notice
+      if: ${{ inputs.dry-run == 'true' }}
+      shell: bash
+      run: echo "Dry run — deployment to ${{ inputs.environment }} skipped"

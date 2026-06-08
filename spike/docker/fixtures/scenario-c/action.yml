@@ -1,0 +1,16 @@
+name: Local Dockerfile Action
+description: Docker action built from a local Dockerfile. Validates H3 (local build) and H4 (content-hash caching).
+inputs:
+  value:
+    description: Value to pass through
+    default: built
+outputs:
+  value:
+    description: Passed-through value
+runs:
+  using: docker
+  image: Dockerfile
+  entrypoint: /bin/sh
+  args:
+    - -c
+    - echo "value=$INPUT_VALUE" >> $GITHUB_OUTPUT

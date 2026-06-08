@@ -1,0 +1,21 @@
+name: Greet
+description: Composite walking-skeleton fixture — the first integration gate for v0.1.
+author: actspec
+
+inputs:
+  name:
+    description: Who to greet
+    required: false
+    default: nobody
+
+outputs:
+  greeting:
+    description: The composed greeting
+    value: ${{ steps.hello.outputs.greeting }}
+
+runs:
+  using: composite
+  steps:
+    - id: hello
+      shell: bash
+      run: echo "greeting=Hello ${{ inputs.name }}" >> "$GITHUB_OUTPUT"

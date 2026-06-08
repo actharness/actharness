@@ -1,0 +1,16 @@
+name: Prebuilt Image Action
+description: Docker action using docker://alpine:3.19. Validates H1 and H2 (protocol round-trip, prebuilt image).
+inputs:
+  message:
+    description: Message to echo back
+    default: hello
+outputs:
+  message:
+    description: Echoed message
+runs:
+  using: docker
+  image: docker://alpine:3.19
+  entrypoint: /bin/sh
+  args:
+    - -c
+    - echo "message=$INPUT_MESSAGE" >> $GITHUB_OUTPUT

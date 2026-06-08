@@ -1,0 +1,16 @@
+name: Non-Root Docker Action
+description: Runs as USER 1000:1000. Validates H8 — non-root users can write to protocol files when world-writable.
+inputs:
+  value:
+    description: Value to echo back
+    default: x
+outputs:
+  echoed:
+    description: Echoed value
+runs:
+  using: docker
+  image: Dockerfile
+  entrypoint: /bin/sh
+  args:
+    - -c
+    - echo "echoed=$INPUT_VALUE" >> $GITHUB_OUTPUT

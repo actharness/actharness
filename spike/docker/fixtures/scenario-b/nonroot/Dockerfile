@@ -1,0 +1,2 @@
+FROM alpine:3.19
+USER 1000:1000

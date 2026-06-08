@@ -1,0 +1,32 @@
+name: Release
+description: Fixture exercising a mocked `uses:`, an `if:` skip, and `$GITHUB_ENV` threading.
+author: actspec
+
+inputs:
+  dry-run:
+    description: When true, skip the publish step
+    default: "false"
+
+outputs:
+  sha:
+    description: The checked-out ref
+    value: ${{ steps.checkout.outputs.ref }}
+
+runs:
+  using: composite
+  steps:
+    - id: checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: "0"
+
+    - id: version
+      shell: bash
+      run: |
+        echo "VERSION=1.2.3" >> "$GITHUB_ENV"
+        echo "tag=v1.2.3" >> "$GITHUB_OUTPUT"
+
+    - id: publish
+      if: ${{ inputs.dry-run != 'true' }}
+      shell: bash
+      run: echo "Publishing $VERSION"

@@ -1,0 +1,13 @@
+name: 'Baseline Action'
+description: 'Spike fixture — CJS, @actions/core only, no bundle. Tests H1, H2, H5.'
+inputs:
+  greeting:
+    description: 'Greeting word to prepend'
+    required: false
+    default: 'Hello'
+outputs:
+  message:
+    description: 'The composed greeting message'
+runs:
+  using: 'node20'
+  main: 'index.js'

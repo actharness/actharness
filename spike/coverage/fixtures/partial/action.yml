@@ -1,0 +1,29 @@
+name: Partial Action
+description: >
+  Composite action where the rollback if: guard is only ever exercised
+  in the false direction (env=production never triggers rollback).
+  Used to prove threshold enforcement (H7) and gap detection (probe #10).
+
+inputs:
+  env:
+    description: Target environment
+    default: production
+
+runs:
+  using: composite
+  steps:
+    - id: deploy
+      name: Deploy
+      shell: bash
+      run: echo "Deploying to ${{ inputs.env }}"
+
+    - id: rollback
+      name: Rollback
+      if: ${{ inputs.env == 'staging' }}
+      shell: bash
+      run: echo "Rollback available in staging only"
+
+    - id: complete
+      name: Complete
+      shell: bash
+      run: echo "Deployment pipeline complete"

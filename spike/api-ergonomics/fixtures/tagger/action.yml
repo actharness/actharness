@@ -1,0 +1,26 @@
+name: Tagger
+description: >
+  Node action that reads repo info via the GitHub API and creates a tag.
+  Exercises: mockGitHubApi, pre/main/post lifecycle, GITHUB_STATE threading.
+
+inputs:
+  tag-name:
+    description: Name of the tag to create
+    required: true
+  token:
+    description: GitHub token with repo write access
+    required: true
+
+outputs:
+  tag-url:
+    description: API URL of the created tag ref
+  default-branch:
+    description: The repository default branch name
+
+runs:
+  using: node20
+  pre: pre.js
+  pre-if: always()
+  main: index.js
+  post: post.js
+  post-if: always()

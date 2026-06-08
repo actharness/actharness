@@ -1,0 +1,35 @@
+name: Setup Environment
+description: >
+  Composite action that sets up Node.js with npm caching.
+  Exercises: mock() with two child actions, output propagation, invocation order.
+
+inputs:
+  node-version:
+    description: Node.js version to install
+    default: '20'
+
+outputs:
+  cache-hit:
+    description: Whether the npm cache was restored
+    value: ${{ steps.cache.outputs.cache-hit }}
+  node-version:
+    description: The exact Node.js version that was set up
+    value: ${{ steps.setup.outputs.node-version }}
+
+runs:
+  using: composite
+  steps:
+    - id: cache
+      uses: actions/cache@v3
+      with:
+        path: ~/.npm
+        key: node-${{ inputs.node-version }}
+
+    - id: setup
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - id: verify
+      shell: bash
+      run: echo "Node ${{ steps.setup.outputs.node-version }} is ready"

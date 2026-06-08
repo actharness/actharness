@@ -1,0 +1,39 @@
+name: Pipeline
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - id: compile
+        shell: bash
+        run: echo "compiled=true" >> "$GITHUB_OUTPUT"
+      - id: package
+        shell: bash
+        run: echo "Packaging artifacts"
+    outputs:
+      compiled: ${{ steps.compile.outputs.compiled }}
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - id: unit
+        shell: bash
+        run: echo "Running unit tests (compiled=${{ needs.build.outputs.compiled }})"
+      - id: integration
+        shell: bash
+        run: echo "Running integration tests"
+
+  deploy:
+    needs: [build, test]
+    runs-on: ubuntu-latest
+    steps:
+      - id: release
+        shell: bash
+        run: echo "Deploying (compiled=${{ needs.build.outputs.compiled }})"
+    outputs:
+      status: done

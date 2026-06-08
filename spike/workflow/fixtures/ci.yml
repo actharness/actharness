@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'release/**']
+    paths: ['src/**', '!src/**/*.md']
+  pull_request:
+    types: [opened, synchronize, reopened]
+  schedule:
+    - cron: '0 9 * * 1'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - id: compile
+        shell: bash
+        run: |
+          echo "artifact=app.tgz" >> "$GITHUB_OUTPUT"
+    outputs:
+      artifact: ${{ steps.compile.outputs.artifact }}
+
+  deploy:
+    needs: build
+    if: ${{ success() }}
+    runs-on: ubuntu-latest
+    steps:
+      - id: ship
+        shell: bash
+        run: echo "Deploying ${{ needs.build.outputs.artifact }}"
+    outputs:
+      deployed: ${{ needs.build.outputs.artifact }}
+
+  notify:
+    needs: build
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - id: send
+        shell: bash
+        run: echo "Build done. Artifact=${{ needs.build.outputs.artifact }}"

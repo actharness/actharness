@@ -1,0 +1,21 @@
+{
+  "name": "actspec-runner-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "mise exec node@22.10.0 -- node --import tsx/esm src/cli.ts 'test/passing.test.ts' 'test/lifecycle.test.ts' 2>&1 | tee /tmp/runner-result.txt; cat /tmp/runner-result.txt",
+    "test:fail": "mise exec node@22.10.0 -- node --import tsx/esm src/cli.ts 'test/failing.test.ts' 2>&1 | tee /tmp/runner-fail-result.txt; cat /tmp/runner-fail-result.txt || true",
+    "test:coverage": "mise exec node@22.10.0 -- node --import tsx/esm src/cli.ts --coverage 'test/passing.test.ts' 'test/lifecycle.test.ts' 2>&1 | tee /tmp/runner-coverage-result.txt; cat /tmp/runner-coverage-result.txt"
+  },
+  "dependencies": {
+    "glob": "^11.0.0",
+    "istanbul-lib-coverage": "^3.2.2",
+    "istanbul-lib-report": "^3.0.1",
+    "istanbul-reports": "^3.1.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.4.0"
+  }
+}

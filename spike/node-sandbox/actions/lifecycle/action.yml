@@ -1,0 +1,14 @@
+name: 'Lifecycle Action'
+description: 'Spike fixture — pre/main/post phases with saveState/getState. Tests H7.'
+outputs:
+  main-ran:
+    description: 'Set to "true" by the main phase'
+  cache-hit:
+    description: 'Set to "true" by post if pre successfully saved state'
+runs:
+  using: 'node20'
+  pre: 'pre.js'
+  pre-if: 'always()'
+  main: 'main.js'
+  post: 'post.js'
+  post-if: 'always()'

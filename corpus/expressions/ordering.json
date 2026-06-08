@@ -1,0 +1,18 @@
+{
+  "_note": "same-type strings -> OrdinalIgnoreCase compare (NOT number coercion); booleans -> numeric; NaN -> false; objects/arrays never coerce -> false.",
+  "cases": [
+    { "expr": "1 < 2", "expect": true },
+    { "expr": "1 > 2", "expect": false },
+    { "expr": "'b' <= 'a'", "expect": false },
+    { "expr": "'b' >= 'a'", "expect": true, "_pins": "string order, not NaN>=NaN" },
+    { "expr": "true > false", "expect": true },
+    { "expr": "true >= false", "expect": true },
+    { "expr": "true >= true", "expect": true },
+    { "expr": "fromJSON('{}') < 2", "expect": false, "_pins": "object vs number -> false" },
+    { "expr": "fromJSON('{}') < fromJSON('[]')", "expect": false },
+    { "expr": "fromJSON('{}') > fromJSON('[]')", "expect": false },
+
+    { "expr": "fromJSON('[0,1]')[34553]", "expect": null, "_pins": "large out-of-bounds index -> null" },
+    { "expr": "fromJSON('[0,1]')[-34553]", "expect": null, "_pins": "large negative index -> null" }
+  ]
+}

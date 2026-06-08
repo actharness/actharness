@@ -1,0 +1,10 @@
+name: Failing Main Lifecycle Action
+description: Docker action whose main-entrypoint exits 1. Validates probe #9 — post-entrypoint runs unconditionally even when main fails.
+outputs:
+  post_ran:
+    description: Written by post phase even after main failure
+runs:
+  using: docker
+  image: Dockerfile
+  entrypoint: /scripts/fail-main.sh
+  post-entrypoint: /scripts/post.sh

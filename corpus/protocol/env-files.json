@@ -1,0 +1,46 @@
+{
+  "cases": [
+    {
+      "file": "GITHUB_OUTPUT",
+      "append": "result=ok\n",
+      "expect": { "result": "ok" },
+      "_pins": "single-line name=value"
+    },
+    {
+      "file": "GITHUB_OUTPUT",
+      "append": "url=https://x.test/a=b\n",
+      "expect": { "url": "https://x.test/a=b" },
+      "_pins": "value may contain '='; split on first '='"
+    },
+    {
+      "file": "GITHUB_OUTPUT",
+      "append": "report<<ghadelimiter_UUID\nline one\nline two\nghadelimiter_UUID\n",
+      "expect": { "report": "line one\nline two" },
+      "_pins": "heredoc multi-line (what modern @actions/core writes)"
+    },
+    {
+      "file": "GITHUB_ENV",
+      "append": "FOO=bar\nBAZ<<ghadelimiter_UUID\nmulti\nline\nghadelimiter_UUID\n",
+      "expect": { "FOO": "bar", "BAZ": "multi\nline" },
+      "_pins": "mixed single-line + heredoc; applies to later steps"
+    },
+    {
+      "file": "GITHUB_STATE",
+      "append": "cache-hit=true\n",
+      "expect": { "cache-hit": "true" },
+      "_pins": "exposed to post: as STATE_cache-hit"
+    },
+    {
+      "file": "GITHUB_PATH",
+      "append": "/opt/tool/bin\n/usr/local/custom\n",
+      "expect": ["/opt/tool/bin", "/usr/local/custom"],
+      "_pins": "ordered list, prepended to PATH for later steps"
+    },
+    {
+      "file": "GITHUB_OUTPUT",
+      "append": "evil<<ghadelimiter_UUID\nghadelimiter_UUID\nghadelimiter_UUID\n",
+      "error": "value should not contain the delimiter",
+      "_pins": "CVE guard: a value containing its own delimiter is malformed"
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - id: checkout
+        uses: actions/checkout@v4
+      - id: compile
+        shell: bash
+        run: |
+          echo "artifact=app.tgz" >> "$GITHUB_OUTPUT"
+          echo "BUILD_DONE=true" >> "$GITHUB_ENV"
+    outputs:
+      artifact: ${{ steps.compile.outputs.artifact }}
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - id: run-tests
+        shell: bash
+        run: echo "Testing ${{ needs.build.outputs.artifact }}"
+      - id: report
+        shell: bash
+        run: echo "All tests passed for ${{ needs.build.outputs.artifact }}"
+
+  publish:
+    needs: [build, test]
+    runs-on: ubuntu-latest
+    steps:
+      - id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: ./dist
+      - id: announce
+        shell: bash
+        run: echo "Published ${{ needs.build.outputs.artifact }}"
+    outputs:
+      artifact-name: ${{ needs.build.outputs.artifact }}

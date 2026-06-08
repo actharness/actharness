@@ -1,0 +1,15 @@
+name: 'Octokit Action'
+description: 'Spike fixture — uses @actions/github Octokit, unbundled. Tests H6.'
+inputs:
+  token:
+    description: 'GitHub token for API auth'
+    required: true
+  issue-number:
+    description: 'Issue number to list comments for'
+    required: true
+outputs:
+  comment-count:
+    description: 'Number of comments on the issue'
+runs:
+  using: 'node20'
+  main: 'index.js'

@@ -1,0 +1,10 @@
+Runner-protocol conformance vectors in this directory are derived from:
+
+- actions/toolkit — https://github.com/actions/toolkit (MIT License)
+    packages/core/src/command.ts, file-command.ts, utils.ts  (the producer/encoding)
+- actions/runner — https://github.com/actions/runner (MIT License)
+    src/Runner.Worker/ActionCommandManager.cs  (the consumer/parsing)
+
+Both projects are MIT-licensed; their copyright and license terms are retained
+per the MIT License. These vectors encode observable wire behavior for
+conformance testing.

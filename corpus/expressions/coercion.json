@@ -1,0 +1,22 @@
+{
+  "_note": "to-number: hex/octal STRINGS parse (≈ JS Number), '' -> 0, junk -> NaN. to-string: G15 numbers, Array/Object for collections.",
+  "cases": [
+    { "expr": "'0xff' == 255", "expect": true, "_pins": "hex string -> 255 (NOT NaN; docs are wrong)" },
+    { "expr": "'010' == 10", "expect": true, "_pins": "decimal string -> number" },
+    { "expr": "'  3  ' == 3", "expect": true, "_pins": "ParseNumber trims" },
+    { "expr": "'abc' == 1", "expect": false, "_pins": "unparseable string -> NaN; NaN == x -> false" },
+    { "expr": "'' == 0", "expect": true, "_pins": "empty string -> 0" },
+    { "expr": "null == 0", "expect": true },
+    { "expr": "true == 1", "expect": true },
+    { "expr": "false == 0", "expect": true },
+
+    { "expr": "format('{0}', 1.0)", "expect": "1", "_pins": "G15: integral double -> '1'" },
+    { "expr": "format('{0}', 1.1)", "expect": "1.1" },
+    { "expr": "format('{0}', 1234567890.0)", "expect": "1234567890" },
+    { "expr": "format('{0}', 12345678901234567890.0)", "expect": "1.23456789012346E+19", "_pins": "G15 exponential, uppercase E" },
+    { "expr": "format('{0}', null)", "expect": "", "_pins": "null -> ''" },
+    { "expr": "format('{0}', true)", "expect": "true" },
+    { "expr": "format('{0}', fromJSON('[1,2]'))", "expect": "Array", "_pins": "array -> 'Array'" },
+    { "expr": "format('{0}', fromJSON('{\"a\":1}'))", "expect": "Object", "_pins": "object -> 'Object'" }
+  ]
+}

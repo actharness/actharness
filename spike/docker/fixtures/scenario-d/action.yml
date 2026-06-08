@@ -1,0 +1,16 @@
+name: Args Expression Action
+description: Docker action with ${{ inputs.name }} in args and entrypoint override. Validates H5.
+inputs:
+  name:
+    description: Name for greeting
+    required: true
+outputs:
+  greeting:
+    description: Greeting output
+runs:
+  using: docker
+  image: docker://alpine:3.19
+  entrypoint: /bin/sh
+  args:
+    - -c
+    - echo "greeting=${{ inputs.name }}" >> $GITHUB_OUTPUT

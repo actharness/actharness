@@ -1,0 +1,14 @@
+{
+  "cases": [
+    { "expr": "true", "expect": true },
+    { "expr": "false", "expect": false },
+    { "expr": "null", "expect": null },
+    { "expr": "123", "expect": 123 },
+    { "expr": "-9.7", "expect": -9.7 },
+    { "expr": "0xff", "expect": 255 },
+    { "expr": "-2.99e-2", "expect": -0.0299 },
+    { "expr": "'foo'", "expect": "foo" },
+    { "expr": "'it''s foo'", "expect": "it's foo" },
+    { "expr": "''", "expect": "" }
+  ]
+}

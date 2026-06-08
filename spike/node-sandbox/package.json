@@ -1,0 +1,19 @@
+{
+  "name": "actspec-sandbox-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "pretest": "node scripts/build-bundled-action.js",
+    "test": "vitest run 2>&1 | tee /tmp/sandbox-test-result.txt; cat /tmp/sandbox-test-result.txt",
+    "test:watch": "vitest",
+    "install:actions": "node scripts/install-actions.js"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@vercel/ncc": "^0.38.0",
+    "js-yaml": "^4.1.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  }
+}

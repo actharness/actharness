@@ -1,0 +1,21 @@
+name: Setter Action
+description: >
+  Node action that sets outputs for JS line coverage testing (H9).
+  Contains a branch (if !name) to probe whether V8 line+branch coverage
+  is captured for the JS file and appears in the merged Istanbul report.
+
+inputs:
+  greeting:
+    description: Greeting prefix
+    default: 'Hello'
+  name:
+    description: Name to greet
+    required: true
+
+outputs:
+  message:
+    description: The assembled greeting message
+
+runs:
+  using: node20
+  main: index.js

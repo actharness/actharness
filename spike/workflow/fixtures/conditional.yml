@@ -1,0 +1,41 @@
+name: Conditional
+
+on: push
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - id: compile
+        shell: bash
+        run: |
+          echo "status=built" >> "$GITHUB_OUTPUT"
+    outputs:
+      status: ${{ steps.compile.outputs.status }}
+
+  on-success:
+    needs: build
+    if: ${{ success() }}
+    runs-on: ubuntu-latest
+    steps:
+      - id: succeed
+        shell: bash
+        run: echo "Build succeeded with status=${{ needs.build.outputs.status }}"
+
+  on-failure:
+    needs: build
+    if: ${{ failure() }}
+    runs-on: ubuntu-latest
+    steps:
+      - id: fail-handler
+        shell: bash
+        run: echo "Build failed!"
+
+  always-run:
+    needs: build
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - id: notify
+        shell: bash
+        run: echo "Always runs. status=${{ needs.build.outputs.status }}"

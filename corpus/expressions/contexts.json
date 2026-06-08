@@ -1,0 +1,72 @@
+{
+  "_context": "Shared context mirrors act's TestContexts setup; applied to every case in this file unless overridden.",
+  "context": {
+    "github": { "action": "push", "event": { "commits": [ { "author": { "username": "someone" } }, { "author": { "username": "someone-else" } } ] } },
+    "env": { "TEST": "value" },
+    "job": { "status": "success" },
+    "steps": { "step-id": { "outputs": { "name": "value" }, "outcome": "success", "conclusion": "success" }, "step-id2": { "outcome": "failure", "conclusion": "skipped" } },
+    "runner": { "os": "Linux", "temp": "/tmp", "tool_cache": "/opt/hostedtoolcache" },
+    "secrets": { "name": "value" },
+    "vars": { "name": "value" },
+    "strategy": { "fail-fast": true },
+    "matrix": { "os": "Linux" },
+    "needs": { "job-id": { "outputs": { "output-name": "value" }, "result": "success" }, "another-job-id": { "result": "success" } },
+    "inputs": { "name": "value" }
+  },
+  "cases": [
+    { "expr": "github.action", "expect": "push" },
+    { "expr": "github['action']", "expect": "push" },
+    { "expr": "github.action[0]", "expect": null, "_pins": "indexing a string -> null" },
+    { "expr": "github.event.commits[0].author.username", "expect": "someone" },
+    { "expr": "github.event.commits[0].message", "expect": null, "_pins": "missing prop -> null" },
+    { "expr": "github.event.pull_request.labels.*.name", "expect": null, "_pins": "filter over missing -> null" },
+    { "expr": "(github.event.commits.*.author.username)[0]", "expect": "someone", "_pins": "object filter -> array" },
+    { "expr": "env.TEST", "expect": "value" },
+    { "expr": "job.status", "expect": "success" },
+    { "expr": "steps.step-id.outputs.name", "expect": "value" },
+    { "expr": "steps['step-id'].outputs.name", "expect": "value" },
+    { "expr": "steps.step-id2.outcome", "expect": "failure" },
+    { "expr": "steps.step-id2.conclusion", "expect": "skipped" },
+    { "expr": "steps.step-id2.outcome == 'success'", "expect": false },
+    { "expr": "runner.os", "expect": "Linux" },
+    { "expr": "secrets.name", "expect": "value" },
+    { "expr": "vars.name", "expect": "value" },
+    { "expr": "strategy.fail-fast", "expect": true },
+    { "expr": "matrix.os", "expect": "Linux" },
+    { "expr": "needs.job-id.outputs.output-name", "expect": "value" },
+    { "expr": "needs.job-id.result", "expect": "success" },
+    { "expr": "contains(needs.*.result, 'success')", "expect": true },
+    { "expr": "contains(needs.*.result, 'failure')", "expect": false },
+    { "expr": "inputs.name", "expect": "value" },
+    { "expr": "fromJSON('[0,1]')[1]", "expect": 1 },
+    { "expr": "fromJSON('[0,1]')[2]", "expect": null, "_pins": "out of bounds -> null" },
+    { "expr": "fromJSON('[0,1]')[-1]", "expect": null },
+    { "expr": "fromJSON('[0,1]')[1.1]", "expect": null, "_pins": "non-integer index -> null" },
+
+    { "expr": "github.action['0']", "expect": null, "_pins": "indexing a string with a string key -> null" },
+
+    { "expr": "steps.step-id.conclusion", "expect": "success" },
+    { "expr": "steps.step-id.conclusion && true", "expect": true, "_pins": "'success' is truthy" },
+    { "expr": "steps.step-id2.conclusion && true", "expect": true, "_pins": "'skipped' is truthy" },
+    { "expr": "steps.step-id.outcome", "expect": "success" },
+    { "expr": "steps.step-id['outcome']", "expect": "success" },
+    { "expr": "steps.step-id.outcome == 'success'", "expect": true },
+    { "expr": "steps.step-id['outcome'] == 'success'", "expect": true },
+    { "expr": "steps.step-id.outcome && true", "expect": true },
+    { "expr": "steps['step-id']['outcome'] && true", "expect": true },
+    { "expr": "steps.step-id2.outcome && true", "expect": true, "_pins": "'failure' is truthy" },
+
+    { "expr": "fromjson('{\"commits\":[]}').commits[0].message", "expect": null,
+      "context": {},
+      "_pins": "function name is case-insensitive" },
+
+    { "expr": "contains(needs.*.result, 'failure')", "expect": true,
+      "context": {
+        "needs": {
+          "first-job": { "outputs": {}, "result": "success" },
+          "second-job": { "outputs": {}, "result": "failure" }
+        }
+      },
+      "_pins": "wildcard filter over needs with mixed results" }
+  ]
+}

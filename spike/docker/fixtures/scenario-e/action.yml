@@ -1,0 +1,13 @@
+name: Lifecycle Docker Action
+description: Docker action with pre-entrypoint/entrypoint/post-entrypoint. Validates H6 (lifecycle + GITHUB_STATE threading).
+outputs:
+  main_ran:
+    description: Written by main phase
+  restored:
+    description: State value written by pre, echoed by post
+runs:
+  using: docker
+  image: Dockerfile
+  pre-entrypoint: /scripts/pre.sh
+  entrypoint: /scripts/main.sh
+  post-entrypoint: /scripts/post.sh

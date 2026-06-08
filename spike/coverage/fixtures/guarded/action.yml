@@ -1,0 +1,39 @@
+name: Guarded Action
+description: >
+  Composite action with multiple if: guards.
+  Designed so both directions (true/false) of each guard can be exercised
+  across different test calls, proving H1 (Istanbul map valid) and H6 (parallel safety).
+
+inputs:
+  mode:
+    description: Operation mode (full or quick)
+    required: true
+  skip-notify:
+    description: Skip the notification step
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - id: prepare
+      name: Prepare
+      shell: bash
+      run: echo "Preparing in ${{ inputs.mode }} mode"
+
+    - id: full-process
+      name: Full Process
+      if: ${{ inputs.mode == 'full' }}
+      shell: bash
+      run: echo "Running full processing pipeline"
+
+    - id: quick-process
+      name: Quick Process
+      if: ${{ inputs.mode == 'quick' }}
+      shell: bash
+      run: echo "Running quick processing"
+
+    - id: notify
+      name: Notify
+      if: ${{ inputs.skip-notify != 'true' }}
+      shell: bash
+      run: echo "Notifying completion for ${{ inputs.mode }} mode"

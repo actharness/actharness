@@ -1,0 +1,26 @@
+{
+  "name": "actspec-coverage-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "mise exec node@22.10.0 -- node --import tsx/esm ../runner/src/cli.ts --import ./src/coverage-register.ts 'test/*.test.ts' 2>&1 | tee /tmp/coverage-result.txt; cat /tmp/coverage-result.txt",
+    "test:coverage": "mise exec node@22.10.0 -- node --import tsx/esm ../runner/src/cli.ts --coverage --import ./src/coverage-register.ts 'test/*.test.ts' 2>&1 | tee /tmp/coverage-cov-result.txt; cat /tmp/coverage-cov-result.txt"
+  },
+  "dependencies": {
+    "yaml": "^2.0.0",
+    "istanbul-lib-coverage": "^3.2.2",
+    "istanbul-lib-report": "^3.0.1",
+    "istanbul-reports": "^3.1.7",
+    "v8-to-istanbul": "^9.2.0",
+    "@actions/core": "^1.10.0",
+    "@actions/github": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/istanbul-lib-coverage": "^2.0.6",
+    "@types/istanbul-lib-report": "^3.0.3",
+    "@types/istanbul-reports": "^3.0.4",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.4.0"
+  }
+}

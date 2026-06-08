@@ -1,0 +1,65 @@
+{
+  "cases": [
+    {
+      "call": { "command": "warning", "properties": {}, "message": "This is a warning" },
+      "line": "::warning::This is a warning",
+      "parsed": { "command": "warning", "properties": {}, "message": "This is a warning" }
+    },
+    {
+      "call": { "command": "add-mask", "properties": {}, "message": "secretValue123" },
+      "line": "::add-mask::secretValue123",
+      "parsed": { "command": "add-mask", "properties": {}, "message": "secretValue123" }
+    },
+    {
+      "call": { "command": "error", "properties": { "file": "app.js", "line": 1, "col": 5 }, "message": "Something failed" },
+      "line": "::error file=app.js,line=1,col=5::Something failed",
+      "parsed": { "command": "error", "properties": { "file": "app.js", "line": "1", "col": "5" }, "message": "Something failed" }
+    },
+    {
+      "call": { "command": "notice", "properties": {}, "message": "100% done" },
+      "line": "::notice::100%25 done",
+      "parsed": { "command": "notice", "properties": {}, "message": "100% done" },
+      "_pins": "message %25 escaping"
+    },
+    {
+      "call": { "command": "warning", "properties": {}, "message": "line one\nline two" },
+      "line": "::warning::line one%0Aline two",
+      "parsed": { "command": "warning", "properties": {}, "message": "line one\nline two" },
+      "_pins": "newline -> %0A in message"
+    },
+    {
+      "call": { "command": "error", "properties": { "title": "a:b,c" }, "message": "m" },
+      "line": "::error title=a%3Ab%2Cc::m",
+      "parsed": { "command": "error", "properties": { "title": "a:b,c" }, "message": "m" },
+      "_pins": "property value escapes : and ,"
+    },
+    {
+      "call": { "command": "set-output", "properties": { "name": "result" }, "message": "ok" },
+      "line": "::set-output name=result::ok",
+      "parsed": { "command": "set-output", "properties": { "name": "result" }, "message": "ok" },
+      "_pins": "deprecated but must still parse"
+    },
+    {
+      "line": "::debug::%250A",
+      "parsed": { "command": "debug", "properties": {}, "message": "%0A" },
+      "_pins": "DECODE-ONLY: %25 decoded LAST, so %250A -> literal '%0A', NOT a newline"
+    },
+    {
+      "line": "::warning::",
+      "parsed": { "command": "warning", "properties": {}, "message": "" },
+      "_pins": "empty message"
+    }
+  ],
+  "sequences": [
+    {
+      "_pins": "stop-commands suspends parsing until the token returns",
+      "stdin": [
+        "::stop-commands::mytoken",
+        "::warning::this is NOT a command, it is literal output",
+        "::mytoken::",
+        "::warning::this one IS a command"
+      ],
+      "expectAnnotations": [ { "level": "warning", "message": "this one IS a command" } ]
+    }
+  ]
+}

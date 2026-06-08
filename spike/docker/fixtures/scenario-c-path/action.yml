@@ -1,0 +1,16 @@
+name: Relative Path Dockerfile Action
+description: Docker action with image pointing to a subdirectory via ./path. Validates probe #6 (./path resolution).
+inputs:
+  value:
+    description: Value to pass through
+    default: built
+outputs:
+  value:
+    description: Passed-through value
+runs:
+  using: docker
+  image: ./subdir
+  entrypoint: /bin/sh
+  args:
+    - -c
+    - echo "value=$INPUT_VALUE" >> $GITHUB_OUTPUT

@@ -1,0 +1,19 @@
+{
+  "name": "actspec-docker-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run 2>&1 | tee /tmp/docker-spike-result.txt; cat /tmp/docker-spike-result.txt",
+    "test:watch": "vitest",
+    "test:docker": "ACTSPEC_CONTAINER=docker vitest run 2>&1 | tee /tmp/docker-spike-docker-result.txt; cat /tmp/docker-spike-docker-result.txt"
+  },
+  "dependencies": {
+    "workflow-spike": "file:../workflow"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  }
+}

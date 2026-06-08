@@ -1,0 +1,13 @@
+name: 'Bundled Action'
+description: 'Spike fixture — ncc-bundled single-file dist. Tests H4.'
+inputs:
+  name:
+    description: 'Name to greet'
+    required: false
+    default: 'World'
+outputs:
+  greeting:
+    description: 'The composed greeting string'
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

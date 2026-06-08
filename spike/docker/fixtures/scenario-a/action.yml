@@ -1,0 +1,16 @@
+name: Greet Docker
+description: Simple docker action used for mock-backend testing (Scenario A).
+inputs:
+  message:
+    description: Message to echo back
+    default: hello
+outputs:
+  result:
+    description: The echoed message
+runs:
+  using: docker
+  image: docker://alpine:3.19
+  entrypoint: /bin/sh
+  args:
+    - -c
+    - echo "result=$INPUT_MESSAGE" >> $GITHUB_OUTPUT

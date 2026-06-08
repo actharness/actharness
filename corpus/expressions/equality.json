@@ -1,0 +1,23 @@
+{
+  "cases": [
+    { "expr": "'a' == 'a'", "expect": true },
+    { "expr": "'a' != 'a'", "expect": false },
+    { "expr": "'TEST' == 'test'", "expect": true, "_pins": "OrdinalIgnoreCase" },
+    { "expr": "null == 0", "expect": true },
+    { "expr": "true == 1", "expect": true },
+    { "expr": "'' == 0", "expect": true },
+    { "expr": "'3' == 3", "expect": true },
+    { "expr": "0 == null", "expect": true },
+    { "expr": "1 == true", "expect": true },
+    { "expr": "0 == ''", "expect": true },
+    { "expr": "3 == '3'", "expect": true },
+    { "expr": "true != false", "expect": true },
+    { "expr": "fromJSON('{}') == fromJSON('{}')", "expect": false, "_pins": "object equality = reference (distinct instances)" },
+    { "expr": "fromJSON('[]') == fromJSON('[]')", "expect": false },
+
+    { "expr": "secrets != env", "expect": true,
+      "context": { "secrets": { "name": "value" }, "env": { "TEST": "value" } },
+      "_pins": "two distinct-reference objects: != → true",
+      "_divergence": "act throws 'Compare not implemented for types: left: map, right: map'; runner returns reference-equality result" }
+  ]
+}

@@ -1,0 +1,16 @@
+name: Alt Dockerfile Action
+description: Same action shape as scenario-c but with different Dockerfile content. Validates H4 (cache invalidation — different content -> different hash -> rebuild).
+inputs:
+  value:
+    description: Value to pass through
+    default: alt
+outputs:
+  value:
+    description: Passed-through value
+runs:
+  using: docker
+  image: Dockerfile
+  entrypoint: /bin/sh
+  args:
+    - -c
+    - echo "value=$INPUT_VALUE" >> $GITHUB_OUTPUT

@@ -1,0 +1,29 @@
+name: Matrix
+
+on: push
+
+jobs:
+  test:
+    strategy:
+      fail-fast: true
+      matrix:
+        node: [18, 20]
+    runs-on: ubuntu-latest
+    steps:
+      - id: run
+        shell: bash
+        run: |
+          if [ "${{ matrix.node }}" = "18" ] && [ "${FORCE_FAIL_NODE18}" = "true" ]; then
+            exit 1
+          fi
+          echo "version=${{ matrix.node }}" >> "$GITHUB_OUTPUT"
+    outputs:
+      version: ${{ steps.run.outputs.version }}
+
+  report:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - id: summarize
+        shell: bash
+        run: echo "Tests complete"

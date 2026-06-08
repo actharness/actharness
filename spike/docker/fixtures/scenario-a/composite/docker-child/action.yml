@@ -1,0 +1,16 @@
+name: Docker Scanner Child
+description: Docker child action used by the composite fixture (Scenario A).
+inputs:
+  path:
+    description: Path to scan
+    required: true
+outputs:
+  scanned:
+    description: Scan result
+runs:
+  using: docker
+  image: docker://alpine:3.19
+  entrypoint: /bin/sh
+  args:
+    - -c
+    - echo "scanned=clean" >> $GITHUB_OUTPUT

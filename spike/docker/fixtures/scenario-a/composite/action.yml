@@ -1,0 +1,16 @@
+name: Composite with docker child
+description: Composite action whose scan step uses a docker child action.
+inputs:
+  path:
+    description: Path to scan
+outputs:
+  scanned:
+    description: Scan result from the docker child
+    value: ${{ steps.scan.outputs.scanned }}
+runs:
+  using: composite
+  steps:
+    - id: scan
+      uses: ./docker-child
+      with:
+        path: ${{ inputs.path }}
