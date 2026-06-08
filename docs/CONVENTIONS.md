@@ -74,7 +74,7 @@ The runtime is **deterministic by default** (frozen clock, seeded RNG, stable id
 ## Definition of Done (every module)
 
 1. Public API matches the module spec's types exactly.
-2. All acceptance fixtures/tests green; coverage meets the module's threshold.
+2. All acceptance fixtures/tests green; **100% coverage** (`pnpm test:coverage`): statements, branches, functions, and lines — no suppression annotations permitted.
 3. Lint + typecheck clean; no import cycles; no `any` in public types.
 4. Dual ESM/CJS build emits and is importable both ways.
 5. A **changeset** describes the change.

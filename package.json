@@ -1,0 +1,26 @@
+{
+  "name": "actspec",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r --filter='./packages/*' build",
+    "typecheck": "pnpm -r --filter='./packages/*' typecheck",
+    "test": "pnpm -r --filter='./packages/*' test",
+    "lint": "eslint packages/*/src packages/*/test",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm build && changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.31.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  }
+}

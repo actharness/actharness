@@ -17,10 +17,10 @@ Complements [NOTICE](NOTICE) (which covers *license/attribution*); this file cov
 |-------|-------|
 | **Status** | `FULL HARVEST` — complete mechanical harvest from `nektos/act` test tables |
 | **As of** | 2026-06-07 |
-| **Vectors committed** | **459** across 7 files (`coercion` 16, `contexts` 45, `equality` 15, `functions` 72, `literals` 10, `logical` 277, `ordering` 12) |
+| **Vectors committed** | **443** across 7 files (`coercion` 16, `contexts` 41, `equality` 15, `functions` 69, `literals` 10, `logical` 280, `ordering` 12) |
 | **Full vendored harvest run?** | **Yes** — all table rows from `interpreter_test.go` + `functions_test.go` converted |
 | **Upstream ref reflected** | `nektos/act` `master` branch, fetched 2026-06-07 (22 660 bytes) |
-| **Gate met ([D5])?** | **Partial** — full corpus green (459/459); parser/eval fuzz not yet in CI (remaining gate item) |
+| **Gate met ([D5])?** | **Yes** — full corpus green (443/443); parser/eval fuzz in CI (fast-check, 2026-06-08) |
 
 ## Sources reflected (see [NOTICE](NOTICE) for license)
 - `nektos/act` — `pkg/exprparser/interpreter_test.go`, `pkg/exprparser/functions_test.go` (table-driven Go; the bulk of the intended full set). **Oracle, imperfect** — its object-compare *throws*; we follow the runner.
@@ -33,14 +33,14 @@ All harvest tasks completed on 2026-06-07 (see probe findings below for details)
 
 1. ✅ Upstream commit/ref pinned — `nektos/act` `master`, fetched 2026-06-07 (22 660 bytes).
 2. ✅ Full vendored harvest — all rows from `interpreter_test.go` + `functions_test.go` converted; act-vs-runner divergences reconciled toward the runner.
-3. ✅ `&&`/`||` type-matrix generated — included in `logical.json` (277 vectors).
+3. ✅ `&&`/`||` type-matrix generated — included in `logical.json` (280 vectors).
 4. ✅ Status table updated.
-
-**Remaining gate item (D5):** parser/eval fuzz not yet in CI — ships as part of building `@actspec/expressions`.
+5. ✅ Parser/eval fuzz in CI — fast-check property tests in `@actspec/expressions` (2026-06-08).
 
 ## Change log
 
-- **2026-06-07** — `FULL HARVEST` (459 vectors). Full mechanical harvest from `nektos/act` `interpreter_test.go` + `functions_test.go`; `&&`/`||` type-matrix generated. Upstream ref pinned. Probe findings archived below.
+- **2026-06-08** — Corpus count corrected to 443 (actual file counts); gate D5 met (`@actspec/expressions` built with fast-check fuzz in CI).
+- **2026-06-07** — `FULL HARVEST` (459 vectors as recorded; actual committed count 443). Full mechanical harvest from `nektos/act` `interpreter_test.go` + `functions_test.go`; `&&`/`||` type-matrix generated. Upstream ref pinned.
 - **2026-06-05** — `SEED` (149 vectors). Provenance documented; full harvest not yet run/committed.
 
 ## Harvest probe findings (H5)
@@ -132,6 +132,6 @@ was SEED at probe time**. The full harvest was subsequently completed on 2026-06
 - The `&&`/`||` type-matrix is the largest single section (~100+ rows from
   `TestOperatorsBooleanEvaluation`). A code generator is the right tool for it.
 
-**Status after probe:** `SEED` at probe time — full harvest subsequently completed 2026-06-07 (459 vectors; see Status table).
+**Status after probe:** `SEED` at probe time — full harvest subsequently completed 2026-06-07 (443 vectors committed; see Status table).
 
 **Date:** 2026-06-06

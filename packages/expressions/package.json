@@ -1,0 +1,47 @@
+{
+  "name": "@actspec/expressions",
+  "version": "0.0.0",
+  "description": "GitHub Actions ${{ }} expression engine — standalone, zero runtime deps",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "api-report": "api-extractor run --local",
+    "api-check": "api-extractor run"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.15.0",
+    "@microsoft/api-extractor": "^7.43.0",
+    "@types/node": "20",
+    "@vitest/coverage-v8": "^2.1.9",
+    "fast-check": "^3.20.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

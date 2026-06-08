@@ -61,8 +61,8 @@
     { "expr": "format('{0}}', '{1}', 'World')", "error": "Closing bracket without opening one" },
     { "expr": "format('{0', '{1}', 'World')", "error": "Unclosed brackets" },
     { "expr": "format('{2}', '{1}', 'World')", "error": "references more arguments than were supplied" },
-    { "expr": "format('{2147483648}')", "error": "references more arguments than were supplied",
-      "_pins": "index > int32.MaxValue: runner says 'invalid format string'; our evaluator falls through to out-of-bounds; both throw — error substring uses our message" },
+    { "expr": "format('{2147483648}')", "error": "invalid format string",
+      "_pins": "index > int32.MaxValue: runner throws 'invalid format string'; aligned with runner behavior" },
 
     { "expr": "join(fromJSON('[\"a\", \"b\"]'), ',')", "expect": "a,b" },
     { "expr": "join('string', ',')", "expect": "string" },
