@@ -24,5 +24,5 @@ export function parseRunnerBridgeArgs(argv: string[]): RunnerBridgeArgs {
     }
   }
 
-  return { files, pattern, registerUrl, tsxEsmUrl };
+  return { files, ...(pattern !== undefined && { pattern }), registerUrl, tsxEsmUrl };
 }

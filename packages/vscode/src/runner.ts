@@ -1,10 +1,47 @@
 import * as vscode from 'vscode';
 import * as path from 'node:path';
-import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { createResultParser } from './result-parser.js';
+
+function findCliInstall(
+  items: vscode.TestItem[],
+  folders: readonly vscode.WorkspaceFolder[],
+): { cliDir: string; workspaceRoot: string } | undefined {
+  const searchRoots = new Set<string>();
+  const resolver = createRequire(__filename).resolve;
+
+  for (const folder of folders) {
+    searchRoots.add(folder.uri.fsPath);
+  }
+
+  for (const item of items) {
+    if (!item.uri) continue;
+    let currentDir = path.dirname(item.uri.fsPath);
+
+    while (true) {
+      if (searchRoots.has(currentDir) || currentDir.endsWith(path.sep) || currentDir === path.parse(currentDir).root) {
+        searchRoots.add(currentDir);
+        break;
+      }
+
+      searchRoots.add(currentDir);
+      currentDir = path.dirname(currentDir);
+    }
+  }
+
+  for (const root of searchRoots) {
+    try {
+      const bridgePath = resolver('@actharness/cli/dist/runner-bridge.js', { paths: [root] });
+      return { cliDir: path.dirname(path.dirname(bridgePath)), workspaceRoot: root };
+    } catch {
+      continue;
+    }
+  }
+
+  return undefined;
+}
 
 export async function runTests(
   run: vscode.TestRun,
@@ -17,23 +54,25 @@ export async function runTests(
     run.appendOutput('actharness: no workspace folder found\r\n');
     return;
   }
-  const workspaceRoot = folders[0]!.uri.fsPath;
-  const cliDir = path.join(workspaceRoot, 'node_modules', '@actharness', 'cli');
-  const bridgePath = path.join(cliDir, 'dist', 'runner-bridge.js');
-  const registerPath = path.join(cliDir, 'dist', 'register.js');
+  const cliInstall = findCliInstall(items, folders);
 
-  if (!existsSync(bridgePath)) {
+  if (!cliInstall) {
     run.appendOutput(
-      'actharness: not found in node_modules. Run `npm install --save-dev actharness`.\r\n',
+      'actharness: not found in node_modules. Run `npm install --save-dev actharness` in the workspace or fixture folder.\r\n',
     );
     for (const item of items) run.errored(item, new vscode.TestMessage('actharness not installed'));
     return;
   }
 
+  const { cliDir, workspaceRoot } = cliInstall;
+  const bridgePath = path.join(cliDir, 'dist', 'runner-bridge.js');
+  const registerPath = path.join(cliDir, 'dist', 'register.js');
+
+
   let tsxEsmUrl: string;
   try {
     // resolve tsx/esm relative to the CLI package so it uses actharness's own tsx dependency
-    const tsxPath = createRequire(import.meta.url).resolve('tsx/esm', { paths: [cliDir] });
+    const tsxPath = createRequire(__filename).resolve('tsx/esm', { paths: [cliDir] });
     tsxEsmUrl = pathToFileURL(tsxPath).href;
   } catch {
     run.appendOutput('actharness: tsx not found in node_modules.\r\n');

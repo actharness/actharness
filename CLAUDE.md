@@ -6,11 +6,12 @@ DONT ADD INSTRUCTION TO MEMORY
 
 ## Running npm scripts
 
-Always redirect npm/npx script output to a file so you can read the full result without truncation:
+Always redirect npm/pnpm/npx script output to a file so you can read the full result without truncation:
 
 ```bash
 npx playwright test 2>&1 | tee /tmp/pw-result.txt; cat /tmp/pw-result.txt
 npm test 2>&1 | tee /tmp/test-result.txt; cat /tmp/test-result.txt
+pnpm test 2>&1 | tee /tmp/test-result.txt; cat /tmp/test-result.txt
 ```
 
 Never pipe directly to `tail` — if the output is long, failures will be truncated and missed.

@@ -32,6 +32,14 @@ vi.mock('@actharness/core', async (importOriginal) => {
 
 vi.mock('@actharness/composite', () => ({}));
 
+vi.mock('@actharness/node', () => ({
+  mockGitHubApi: vi.fn(),
+  mockGitHubApiOnce: vi.fn(),
+  mockNetwork: vi.fn(),
+  mockNetworkOnce: vi.fn(),
+  resetNetworkMocks: vi.fn(),
+}));
+
 vi.mock('@actharness/coverage', () => ({
   CoverageCollector: vi.fn(function() {
     return {
@@ -47,6 +55,24 @@ const mockWriteFileSync = vi.fn();
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
   return { ...actual, mkdirSync: mockMkdirSync, writeFileSync: mockWriteFileSync };
+});
+
+// ── register.ts resetMocks — stable first-evaluation coverage ────────────────
+// Must appear before any describe that calls vi.resetModules(), so this import
+// is the canonical V8 script instance and its coverage is properly attributed.
+
+describe('register.ts resetMocks coverage', () => {
+  it('resetMocks() covered on first import', async () => {
+    await import('../src/register.js');
+    const { resetNetworkMocks } = await import('@actharness/node');
+    const g = globalThis as Record<string, unknown>;
+
+    // Cover the resetMocks arrow function body.
+    const acth = g['actharness'] as { resetMocks: () => void };
+    acth.resetMocks();
+
+    expect(vi.mocked(resetNetworkMocks)).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ── cli.ts dispatch tests ─────────────────────────────────────────────────────
@@ -141,6 +167,11 @@ describe('register.ts worker bootstrap', () => {
     expect(typeof g['describe']).toBe('function');
     expect(typeof g['actharness']).toBe('function');
     expect(typeof g['expect']).toBe('function');
+    const acth = g['actharness'] as { resetMocks: () => void; mockGitHubApi: unknown; mockNetwork: unknown };
+    expect(typeof acth.mockGitHubApi).toBe('function');
+    expect(typeof acth.mockNetwork).toBe('function');
+    // Verify resetMocks wrapper runs without error (covers line 33 function body).
+    expect(() => acth.resetMocks()).not.toThrow();
   });
 
   it('registers coverage collector when ACTHARNESS_COVERAGE_TMP is set (try path)', async () => {

@@ -1,0 +1,19 @@
+name: Mock Env
+description: Shows that env contributed by a mocked action is available to subsequent steps.
+author: actharness
+
+outputs:
+  injected-value:
+    description: Value read from env injected by the mocked action
+    value: ${{ steps.read-env.outputs.injected-value }}
+
+runs:
+  using: composite
+  steps:
+    - id: setup
+      uses: actions/setup-tool@v1
+
+    - id: read-env
+      shell: bash
+      run: |
+        echo "injected-value=$TOOL_VERSION" >> "$GITHUB_OUTPUT"

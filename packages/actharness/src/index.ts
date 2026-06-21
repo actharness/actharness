@@ -1,13 +1,17 @@
 import '@actharness/composite';
 import { actharness as _actharness } from '@actharness/core';
-import type { ActharnessOptions } from '@actharness/types';
-import type { ActionMockDef, ActionMockImpl, ActionMock } from '@actharness/types';
+import type { ActharnessOptions, ActionMockDef, ActionMockImpl, ActionMock, GitHubApiRoutes, NetworkMatcher, NetworkMock } from '@actharness/types';
 import type { Action } from '@actharness/core';
 
 export type ActharnessFn = {
   (source: string, options?: ActharnessOptions): Action;
   mock(ref: string, def?: ActionMockDef | ActionMockImpl): ActionMock;
+  mockOnce(ref: string, def?: ActionMockDef | ActionMockImpl): ActionMock;
   resetMocks(): void;
+  mockGitHubApi(routes: GitHubApiRoutes): NetworkMock;
+  mockGitHubApiOnce(routes: GitHubApiRoutes): NetworkMock;
+  mockNetwork(matcher: NetworkMatcher, status: number, response: unknown, headers?: Record<string, string>): NetworkMock;
+  mockNetworkOnce(matcher: NetworkMatcher, status: number, response: unknown, headers?: Record<string, string>): NetworkMock;
 };
 
 export const actharness = _actharness as unknown as ActharnessFn;

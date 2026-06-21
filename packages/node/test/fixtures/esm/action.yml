@@ -1,0 +1,13 @@
+name: 'ESM Node Action'
+description: 'actharness/node fixture — pure ESM action (type: module).'
+inputs:
+  name:
+    description: 'Name to greet'
+    required: false
+    default: 'World'
+outputs:
+  greeting:
+    description: 'Greeting string'
+runs:
+  using: 'node22'
+  main: 'index.mjs'

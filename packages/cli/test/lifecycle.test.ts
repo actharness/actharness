@@ -13,7 +13,7 @@ vi.mock('@actharness/core', async (importOriginal) => {
 describe('lifecycle wrappers', () => {
   it('describe: captures scope and delegates to nodeDescribe', async () => {
     const { describe: wrapDescribe } = await import('../src/lifecycle.js');
-    const nodeTest = await import('node:test') as { describe: ReturnType<typeof vi.fn> };
+    const nodeTest = await import('node:test') as unknown as { describe: ReturnType<typeof vi.fn> };
 
     const fn = vi.fn();
     wrapDescribe('suite', fn);
@@ -24,7 +24,7 @@ describe('lifecycle wrappers', () => {
 
   it('it: captures scope and delegates to nodeIt', async () => {
     const { it: wrapIt } = await import('../src/lifecycle.js');
-    const nodeTest = await import('node:test') as { it: ReturnType<typeof vi.fn> };
+    const nodeTest = await import('node:test') as unknown as { it: ReturnType<typeof vi.fn> };
 
     const fn = vi.fn();
     wrapIt('test', fn);
@@ -35,7 +35,7 @@ describe('lifecycle wrappers', () => {
 
   it('test: captures scope and delegates to nodeTest', async () => {
     const { test: wrapTest } = await import('../src/lifecycle.js');
-    const nodeTest = await import('node:test') as { test: ReturnType<typeof vi.fn> };
+    const nodeTest = await import('node:test') as unknown as { test: ReturnType<typeof vi.fn> };
 
     const fn = vi.fn();
     wrapTest('test', fn);
@@ -46,7 +46,7 @@ describe('lifecycle wrappers', () => {
 
   it('beforeEach: captures scope and delegates to nodeBeforeEach', async () => {
     const { beforeEach: wrapBeforeEach } = await import('../src/lifecycle.js');
-    const nodeTest = await import('node:test') as { beforeEach: ReturnType<typeof vi.fn> };
+    const nodeTest = await import('node:test') as unknown as { beforeEach: ReturnType<typeof vi.fn> };
 
     const fn = vi.fn();
     wrapBeforeEach(fn);
@@ -57,7 +57,7 @@ describe('lifecycle wrappers', () => {
 
   it('afterEach: captures scope and delegates to nodeAfterEach', async () => {
     const { afterEach: wrapAfterEach } = await import('../src/lifecycle.js');
-    const nodeTest = await import('node:test') as { afterEach: ReturnType<typeof vi.fn> };
+    const nodeTest = await import('node:test') as unknown as { afterEach: ReturnType<typeof vi.fn> };
 
     const fn = vi.fn();
     wrapAfterEach(fn);
@@ -68,7 +68,7 @@ describe('lifecycle wrappers', () => {
 
   it('before, after, beforeAll, afterAll are re-exported from node:test', async () => {
     const { before, after, beforeAll, afterAll } = await import('../src/lifecycle.js');
-    const nodeTest = await import('node:test') as {
+    const nodeTest = await import('node:test') as unknown as {
       before: ReturnType<typeof vi.fn>;
       after: ReturnType<typeof vi.fn>;
     };

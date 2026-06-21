@@ -1,0 +1,13 @@
+name: With Node Two Steps
+description: Fixture for two shell:node steps
+runs:
+  using: composite
+  steps:
+    - id: step1
+      run: |
+        console.log('step1');
+      shell: node
+    - id: step2
+      run: |
+        console.log('step2');
+      shell: node

@@ -47,7 +47,7 @@ describe('getCoverage()', () => {
   it('returns a CoverageReport after actharnessCoverage() is called', async () => {
     const { actharnessCoverage, getCoverage } = await import('../src/actharness-coverage.js');
     actharnessCoverage();
-    const report = getCoverage();
+    const report = await getCoverage();
     expect(report).toHaveProperty('files');
     expect(report).toHaveProperty('total');
     expect(typeof report.files).toBe('object');
@@ -56,7 +56,7 @@ describe('getCoverage()', () => {
 
   it('throws when actharnessCoverage() has not been called', async () => {
     const { getCoverage } = await import('../src/actharness-coverage.js');
-    expect(() => getCoverage()).toThrow('actharnessCoverage() has not been called');
+    await expect(getCoverage()).rejects.toThrow('actharnessCoverage() has not been called');
   });
 });
 
@@ -64,14 +64,20 @@ describe('getCoverage()', () => {
 
 function makeFileCoverage(path: string, opts: { covered?: number; total?: number } = {}): FileCoverage {
   const stat: CoverageStat = { covered: opts.covered ?? 1, total: opts.total ?? 1, pct: 100 };
-  return { path, steps: stat, ifBranches: stat, inputs: stat, outputs: stat, ifBranchTable: [], inputTable: [], outputTable: [], stepHits: {}, uncoveredSteps: [] };
+  return { path, steps: stat, ifBranches: stat, inputs: stat, outputs: stat, ifBranchTable: [], inputTable: [], outputTable: [], stepHits: {}, stepReached: {}, uncoveredSteps: [] };
 }
 
 function makeReport(files: FileCoverage[]): CoverageReport {
   const stat: CoverageStat = { covered: 0, total: 0, pct: 0 };
   return {
     files: Object.fromEntries(files.map((f) => [f.path, f])),
-    total: { steps: stat, ifBranches: stat, inputs: stat, outputs: stat },
+    jsFiles: {},
+    total: { steps: stat, ifBranches: stat, inputs: stat, outputs: stat, jsStatements: stat, jsBranches: stat, jsFunctions: stat, jsLines: stat, shShellLines: stat, pwshShellLines: stat, pythonShellStatements: stat, pythonShellBranches: stat, pythonShellLines: stat, bashShellLines: stat, nodeShellLines: stat, nodeShellStatements: stat, nodeShellBranches: stat },
+    pythonShellFiles: {},
+    shShellFiles: {},
+    bashShellFiles: {},
+    pwshShellFiles: {},
+    nodeShellFiles: {},
   };
 }
 
@@ -220,6 +226,20 @@ describe('applyIncludeExclude()', () => {
     expect(fc.ifBranches.pct).toBe(100);
     expect(fc.inputs.pct).toBe(100);
     expect(fc.uncoveredSteps).toEqual([]);
+  });
+
+  it('_buildZeroFileCoverage: step with if: always() sets falseBranchImpossible and counts 1 branch', () => {
+    const actionPath = join(tmpDir, 'action.yml');
+    writeFileSync(
+      actionPath,
+      'name: T\nruns:\n  using: composite\n  steps:\n    - id: s1\n      if: ${{ always() }}\n      run: echo hi\n      shell: bash\n',
+    );
+    const base = makeReport([]);
+    const result = applyIncludeExclude(base, { include: ['action.yml'] }, tmpDir);
+    const fc = result.files[actionPath]!;
+    expect(fc.ifBranchTable[0]).toMatchObject({ step: 's1', expression: '${{ always() }}', falseBranchImpossible: true });
+    expect(fc.ifBranches.total).toBe(1);
+    expect(fc.ifBranches.covered).toBe(0);
   });
 
   it('_buildZeroFileCoverage: step with if: success() is excluded from ifBranchTable', () => {

@@ -1,0 +1,17 @@
+name: Node Greet
+description: Node action integration fixture — basic input/output, process.exit trap.
+author: actharness
+
+inputs:
+  name:
+    description: Who to greet
+    required: false
+    default: World
+
+outputs:
+  greeting:
+    description: The composed greeting
+
+runs:
+  using: node22
+  main: dist/index.js

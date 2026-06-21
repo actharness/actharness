@@ -18,11 +18,19 @@ import {
   allocateProtocolFiles,
   applyMasks,
 } from './protocol.js';
-import type { SandboxFactory, ExecutionCall, ExecutionResult } from './executor-registry.js';
+import type { SandboxFactory, ShellSandboxResult, ExecutionCall, ExecutionResult } from './executor-registry.js';
 import type { ProtocolFiles } from './protocol.js';
 import type { MockRegistry } from './mock-resolver.js';
 import { checkCycle, checkMaxDepth } from './mock-resolver.js';
 import { resolve } from 'node:path';
+import { cpSync, statSync } from 'node:fs';
+import { ConfigError } from './errors.js';
+
+// `uses:` refs that this harness treats as "the action that populates the workspace
+// from the repo" — matched to decide when to copy `actharnessOptions.workspace` (the
+// seed-source option) into the real runtime workspace dir. Intentionally narrow (the
+// canonical action) rather than every checkout-like fork, to keep the gating predictable.
+const CHECKOUT_REF_PATTERN = /^actions\/checkout(@.*)?$/;
 
 // ── StepRunnerOptions ─────────────────────────────────────────────────────────
 
@@ -37,6 +45,10 @@ export interface StepRunnerOptions {
   depth: number;
   /** Source file path for diagnostic messages. */
   filePath?: string | undefined;
+  /** Opaque run identifier; enables pwsh session reuse when present. */
+  runId?: string | undefined;
+  /** pwsh isolation mode for this run. Default 'runspace'. */
+  pwshIsolation?: 'runspace' | 'process' | undefined;
 }
 
 // ── StepRunnerResult ──────────────────────────────────────────────────────────
@@ -69,7 +81,7 @@ async function execRunStep(
   store: ContextStore,
   proto: ProtocolFiles,
   opts: StepRunnerOptions,
-): Promise<{ exitCode: number; stdout: string; stderr: string; timedOut: boolean }> {
+): Promise<ShellSandboxResult> {
   const script = evalTemplate(step.run!, store, opts.filePath);
   const shell = resolveShell(
     step.shell,
@@ -97,9 +109,6 @@ async function execRunStep(
     GITHUB_STEP_SUMMARY: proto.summary,
   };
 
-  // Apply masks to the script before passing to sandbox
-  const maskedScript = applyMasks(script, store.masks);
-
   const cwd = step['working-directory']
     ? resolve(opts.workspace, evalTemplate(step['working-directory'], store, opts.filePath))
     : opts.workspace;
@@ -108,11 +117,14 @@ async function execRunStep(
   const timeoutMs = timeout ? timeout * 60_000 : undefined;
 
   return opts.sandbox.shell({
-    script: maskedScript,
+    script,
     shell,
     env: shellEnv,
     cwd,
     timeout: timeoutMs,
+    coverage: !!process.env['ACTHARNESS_COVERAGE_TMP'],
+    runId: opts.runId,
+    pwshIsolation: opts.pwshIsolation,
   });
 }
 
@@ -134,6 +146,25 @@ async function execUsesStep(
   withInputs: Record<string, string>;
 }> {
   const ref = step.uses!;
+
+  // Seed the workspace the moment a checkout-like step runs — regardless of whether
+  // that step resolves as a mock, a no-op, or real local execution below. This is what
+  // makes `options.workspace` faithful to real GitHub Actions: files aren't present
+  // until something that "is" checkout actually executes, not from the start of the run.
+  const seedFrom = opts.actharnessOptions.workspace;
+  if (seedFrom && CHECKOUT_REF_PATTERN.test(ref)) {
+    let seedStat;
+    try {
+      seedStat = statSync(seedFrom);
+    } catch {
+      throw new ConfigError(`options.workspace points to a path that does not exist: '${seedFrom}'`);
+    }
+    if (!seedStat.isDirectory()) {
+      throw new ConfigError(`options.workspace must be a directory, got a file: '${seedFrom}'`);
+    }
+    cpSync(seedFrom, opts.workspace, { recursive: true });
+  }
+
   const resolution = opts.mocks.resolve(ref, opts.actionDir, opts.actharnessOptions);
 
   // Evaluate with: inputs as templates
@@ -154,7 +185,7 @@ async function execUsesStep(
   const callEnv = { ...store.env, ...stepEnv };
 
   if (resolution.kind === 'mock') {
-    const { outputs, conclusion } = await resolution.handle.resolve({
+    const { outputs, env, conclusion } = await resolution.handle.resolve({
       with: withInputs,
       env: callEnv,
     });
@@ -165,7 +196,7 @@ async function execUsesStep(
       timedOut: false,
       mocked: true,
       childOutputs: outputs,
-      childEnv: {},
+      childEnv: env,
       withInputs,
     };
   }
@@ -205,6 +236,7 @@ async function execUsesStep(
     protocol: childProto,
     mocks: opts.mocks,
     sandbox: opts.sandbox,
+    options: opts.actharnessOptions,
     cycleGuard: [...opts.cycleGuard, childDir],
     depth: opts.depth + 1,
     dispatch: opts.dispatch,
@@ -294,6 +326,8 @@ export async function runSteps(
     let usesWithInputs: Record<string, string> = {};
     let renderInfo: StepResult['render'] | undefined;
 
+    let stepShellCoverage: import('@actharness/types').StepResult['shellCoverage'];
+
     try {
       if (step.run !== undefined) {
         const result = await execRunStep(step, store, proto, opts);
@@ -301,6 +335,9 @@ export async function runSteps(
         rawStdout = result.stdout;
         rawStderr = result.stderr;
         timedOut = result.timedOut;
+        if (result.shellCoverage) {
+          stepShellCoverage = result.shellCoverage;
+        }
 
         // Build render info for diagnostics
         const script = evalTemplate(step.run, store, opts.filePath);
@@ -445,6 +482,10 @@ export async function runSteps(
 
     if (renderInfo) {
       stepResult.render = renderInfo;
+    }
+
+    if (stepShellCoverage) {
+      stepResult.shellCoverage = stepShellCoverage;
     }
 
     stepResults.push(stepResult);

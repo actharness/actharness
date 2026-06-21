@@ -10,6 +10,7 @@ export interface ActharnessConfig {
   coverageDir?: string;
   thresholds?: Record<string, number>;
   patterns?: string[];
+  workers?: number;
 }
 
 export async function loadConfig(cwd: string): Promise<ActharnessConfig> {

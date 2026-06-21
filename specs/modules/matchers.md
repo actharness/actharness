@@ -9,7 +9,7 @@ The matchers in [API.md §6](../../docs/API.md). Exposed as:
 
 Matchers:
 - Result: `toHaveSucceeded`, `toHaveFailed`, `toHaveStep`, `toHaveStepSucceeded`, `toHaveStepFailed`, `toHaveStepSkipped`, `toHaveOutput`, `toHaveStepOutput`, `toHaveAnnotation`.
-- Step: `toHaveSucceeded`, `toHaveFailed`, `toHaveOutput`, `toHaveAnnotation`, `toHaveStdoutContaining`, `toHaveStderrContaining` (operate on `result.step('id')`; if step absent, throws `"Expected step to exist, but step was not found"`).
+- Step: `toHaveSucceeded`, `toHaveFailed`, `toHaveBeenSkipped`, `toHaveOutput`, `toHaveAnnotation`, `toHaveStdoutContaining`, `toHaveStderrContaining` (operate on `result.step('id')`; if step absent, throws `"Expected step to exist, but step was not found"`).
 - Mock: `toHaveBeenCalled`, `toHaveBeenCalledWith`, `toHaveBeenCalledTimes` (operate on `ActionMock`; `.calls` is also available directly).
 
 (Workflow/job matchers — v0.4; leave names reserved, unimplemented in v0.1: `toHaveRunJob`, `toHaveJobConclusion`, `toHaveJobOutput`, `toHaveSkippedJob`, `toHaveJobCancelled`.)
@@ -27,7 +27,7 @@ Matchers:
 
 ## Acceptance
 - Every matcher: passing case, failing case (assert the message is actionable), and `.not`.
-- Step matchers (`toHaveSucceeded`, `toHaveFailed`, `toHaveOutput`, `toHaveAnnotation`, `toHaveStdoutContaining`, `toHaveStderrContaining` on `result.step('id')`): passing case, failing case (message names the step id and shows actual value), `.not`; when step absent, all throw `"Expected step to exist, but step was not found"`.
+- Step matchers (`toHaveSucceeded`, `toHaveFailed`, `toHaveBeenSkipped`, `toHaveOutput`, `toHaveAnnotation`, `toHaveStdoutContaining`, `toHaveStderrContaining` on `result.step('id')`): passing case, failing case (message names the step id and shows actual value), `.not`; when step absent, all throw `"Expected step to exist, but step was not found"`.
 - Type test (`.test-d.ts`): the augmented `expect(result)` surface is fully typed.
 - No test-framework peer dependency anywhere in the package.
 

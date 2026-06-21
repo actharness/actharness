@@ -1,20 +1,21 @@
 # `@actharness/composite`
 
-The v0.1 executor: runs `using: composite` actions — the step loop + the `ShellSandbox` that executes real `run:` shell in a scoped temp workspace. Registers itself into core's executor registry.
+The v0.1 executor: runs `using: composite` actions — the step loop that dispatches `run:` steps to `@actharness/shell`'s `ShellSandbox` and `uses:` steps to core's mock resolver. Registers itself into core's executor registry.
 
 ## Owns
 - An `ActionExecutor` with `handles('composite')`.
-- `ShellSandbox` (a `SandboxFactory` shell provider).
+
+`ShellSandbox` itself lives in [`@actharness/shell`](shell.md) — split out so it can also be reused by `@actharness/workflow` (v0.4), since `run:`/`shell:` semantics are identical for a composite step and a workflow job step.
 
 No new *public* consumer types — it surfaces results through core's `RunResult`/`StepResult`.
 
 ## Depends on
-`@actharness/core` (seam types, protocol, context, mock resolver, errors) and `@actharness/expressions` (via core's evaluator). No others.
+`@actharness/core` (seam types, protocol, context, mock resolver, errors), `@actharness/shell` (`ShellSandbox`), and `@actharness/expressions` (via core's evaluator). No others.
 
 ## Behavior (MUST)
 1. **Step loop**, in manifest order. For each step:
    - Evaluate `if:` (default `success()`); coerce to boolean. **Status model (match the runner):** track a running composite status starting `success`, flipping to `failure` on the first step whose **conclusion** is `failure` (i.e. *after* `continue-on-error` is applied — so c-o-e failures don't flip it). `success()` holds only while that status is `success` and the injected `jobStatus` isn't `failure`/`cancelled`; `failure()` once a prior step failed; `always()` always; `cancelled()` from `jobStatus`. False → record `outcome:'skipped'`, `ran:false`, and the `if` result (for branch coverage). True → execute.
-   - **`run:` step** → `ShellSandbox`: substitute `${{ }}` into the script as **literal text** (reproduce GitHub's injection behavior — don't sanitize), then spawn the declared `shell` with the faithful wrapper (`bash --noprofile --norc -eo pipefail {0}`, `sh -e`, `pwsh -command`, …; default by `runner.os`). Honor `working-directory`; build env from the scoped allowlist + `GITHUB_*` + `RUNNER_*` + `INPUT_*` + accumulated `$GITHUB_ENV` (precedence: step `env` > action `env` > process allowlist). Exit code decides `outcome`.
+   - **`run:` step** → `@actharness/shell`'s `ShellSandbox`: substitute `${{ }}` into the script as **literal text** (reproduce GitHub's injection behavior — don't sanitize), then spawn the declared `shell` with the faithful wrapper (`bash --noprofile --norc -eo pipefail {0}`, `sh -e`, `pwsh -command`, …; default by `runner.os`). Honor `working-directory`; build env from the scoped allowlist + `GITHUB_*` + `RUNNER_*` + `INPUT_*` + accumulated `$GITHUB_ENV` (precedence: step `env` > action `env` > process allowlist). Exit code decides `outcome`.
    - **`uses:` step** → resolve via core's `MockResolver` (mock replay, local `real` recursion, or remote `noop`+warning). Pass the evaluated `with:` as `INPUT_*` to the child; collect its outputs into `steps.<id>.outputs`.
 2. **Env-file threading** — after each step, read `$GITHUB_OUTPUT`→`steps.<id>.outputs`, `$GITHUB_ENV`→context env for later steps, `$GITHUB_PATH`→PATH, `$GITHUB_STATE`. Children's pre/main/**post** phases run in the runner's order (post in reverse, after mains) and carry `phase` on their `StepResult`s.
 3. **outcome vs conclusion** — `continue-on-error: true` ⇒ a failed step keeps `outcome:'failure'` but `conclusion:'success'` and the run continues; otherwise a failure stops the run and fails it.

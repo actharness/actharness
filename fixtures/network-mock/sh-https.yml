@@ -1,0 +1,16 @@
+name: Network Mock — sh HTTPS
+description: Fixture E — HTTPS via curl (CURL_CA_BUNDLE set by proxy env)
+
+outputs:
+  body:
+    description: response body
+    value: ${{ steps.fetch.outputs.body }}
+
+runs:
+  using: composite
+  steps:
+    - id: fetch
+      shell: sh
+      run: |
+        body=$(curl -sf https://api.example.com/data)
+        echo "body=$body" >> "$GITHUB_OUTPUT"

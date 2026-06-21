@@ -1,0 +1,16 @@
+name: Network Mock — bash plain string body
+description: Fixture M — curl receives a raw string body (no JSON serialization)
+
+outputs:
+  body:
+    description: raw response body
+    value: ${{ steps.fetch.outputs.body }}
+
+runs:
+  using: composite
+  steps:
+    - id: fetch
+      shell: bash
+      run: |
+        body=$(curl -sf http://example.com/text)
+        echo "body=$body" >> "$GITHUB_OUTPUT"

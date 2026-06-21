@@ -1,0 +1,27 @@
+name: Python Shell Demo (python alias)
+description: "Exercises shell: python — identical to action.yml but uses the 'python' binary alias."
+author: actharness
+
+inputs:
+  name:
+    description: Name to greet. Optional — defaults to World.
+    default: "World"
+  should-fail:
+    description: When true, triggers a step failure to test failure() condition.
+    required: true
+
+outputs:
+  greeting:
+    description: Greeting produced from the name input
+    value: ${{ steps.greet.outputs.greeting }}
+
+runs:
+  using: composite
+  steps:
+    - id: greet
+      shell: python
+      run: |
+        import os
+        name = os.environ.get('INPUT_NAME', 'World')
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f'greeting=Hello, {name}!\n')

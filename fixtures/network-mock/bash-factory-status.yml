@@ -1,0 +1,21 @@
+name: Network Mock — bash factory status override
+description: Fixture O — factory returns a different HTTP status code on each call
+
+outputs:
+  first:
+    description: HTTP status code of the first call
+    value: ${{ steps.fetch.outputs.first }}
+  second:
+    description: HTTP status code of the second call
+    value: ${{ steps.fetch.outputs.second }}
+
+runs:
+  using: composite
+  steps:
+    - id: fetch
+      shell: bash
+      run: |
+        first=$(curl -s -o /dev/null -w '%{http_code}' https://api.example.com/retry)
+        second=$(curl -s -o /dev/null -w '%{http_code}' https://api.example.com/retry)
+        echo "first=$first" >> "$GITHUB_OUTPUT"
+        echo "second=$second" >> "$GITHUB_OUTPUT"

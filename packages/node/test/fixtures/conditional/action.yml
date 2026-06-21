@@ -1,0 +1,12 @@
+name: 'Conditional Node Action'
+description: 'actharness/node fixture — pre-if and post-if that evaluate to false, so both phases are skipped.'
+outputs:
+  ran:
+    description: 'Set to "true" by main phase'
+runs:
+  using: 'node22'
+  pre: 'pre.js'
+  pre-if: '${{ false }}'
+  main: 'main.js'
+  post: 'post.js'
+  post-if: '${{ false }}'

@@ -1,3 +1,5 @@
+/// <reference types="node" />
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Uri, workspace } from 'vscode';
 
@@ -61,6 +63,24 @@ function makeToken(cancel = false) {
   };
 }
 
+function mockCliResolution(cliRoot = '/ws') {
+  vi.mocked(createRequire).mockReturnValue({
+    resolve: vi.fn().mockImplementation((specifier: string, options?: { paths?: string[] }) => {
+      const searchRoot = options?.paths?.[0] ?? cliRoot;
+
+      if (specifier === '@actharness/cli/dist/runner-bridge.js') {
+        return `${searchRoot}/node_modules/@actharness/cli/dist/runner-bridge.js`;
+      }
+
+      if (specifier === 'tsx/esm') {
+        return `${cliRoot}/node_modules/@actharness/cli/node_modules/tsx/dist/esm/index.cjs`;
+      }
+
+      throw new Error(`not found: ${specifier}`);
+    }),
+  } as never);
+}
+
 function makeChild(stdout = '', stderr = '', exitCode = 0) {
   let stdoutHandler: ((chunk: Buffer) => void) | null = null;
   let stderrHandler: ((chunk: Buffer) => void) | null = null;
@@ -100,6 +120,8 @@ function makeChild(stdout = '', stderr = '', exitCode = 0) {
 describe('runTests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(existsSync).mockReturnValue(false);
+    mockCliResolution();
 
     const folder = { uri: Uri.file('/ws'), name: 'ws', index: 0 };
     vi.spyOn(workspace, 'workspaceFolders', 'get').mockReturnValue([folder]);
@@ -109,7 +131,15 @@ describe('runTests', () => {
   });
 
   it('reports error and returns when actharness is not installed', async () => {
-    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(createRequire).mockReturnValue({
+      resolve: vi.fn().mockImplementation((specifier: string) => {
+        if (specifier === '@actharness/cli/dist/runner-bridge.js') {
+          throw new Error('not found');
+        }
+
+        throw new Error(`not found: ${specifier}`);
+      }),
+    } as never);
 
     const run = makeRun();
     const item = makeItem(`file:///ws/greet.test.ts::greets`);
@@ -123,9 +153,57 @@ describe('runTests', () => {
     expect(run.errored).toHaveBeenCalledWith(item, expect.anything());
   });
 
+  it('resolves actharness from a fixture-local node_modules folder', async () => {
+    vi.mocked(existsSync).mockImplementation((candidatePath: string) =>
+      candidatePath.includes('/ws/fixtures/node_modules/@actharness/cli/dist/runner-bridge.js'),
+    );
+    vi.mocked(createRequire).mockReturnValue({
+      resolve: vi.fn().mockImplementation((specifier: string, options?: { paths?: string[] }) => {
+        const paths = options?.paths as string[] | undefined;
+
+        if (specifier === '@actharness/cli/dist/runner-bridge.js') {
+          expect(paths?.[0]).toBe('/ws/fixtures');
+          return '/ws/fixtures/node_modules/@actharness/cli/dist/runner-bridge.js';
+        }
+
+        if (specifier === 'tsx/esm') {
+          return '/ws/fixtures/node_modules/@actharness/cli/node_modules/tsx/dist/esm/index.cjs';
+        }
+
+        throw new Error(`not found: ${specifier}`);
+      }),
+    } as never);
+
+    const item = makeItem(`file:///ws/fixtures/sample.test.ts::greets`, '/ws/fixtures/sample.test.ts');
+    const run = makeRun();
+    const token = makeToken();
+
+    const child = makeChild('', '', 0);
+    vi.mocked(spawn).mockReturnValue(child as never);
+
+    const promise = runTests(run as never, [item], token as never);
+    child._emit();
+    await promise;
+
+    expect(spawn).toHaveBeenCalled();
+    const [, , spawnOpts] = vi.mocked(spawn).mock.calls[0]! as [string, string[], { cwd: string }];
+    expect(spawnOpts.cwd).toBe('/ws/fixtures');
+  });
+
   it('reports error when tsx cannot be resolved', async () => {
-    vi.mocked(existsSync).mockReturnValue(true);
-    vi.mocked(createRequire).mockReturnValue({ resolve: vi.fn().mockImplementation(() => { throw new Error('not found'); }) } as never);
+    vi.mocked(createRequire).mockReturnValue({
+      resolve: vi.fn().mockImplementation((specifier: string, options?: { paths?: string[] }) => {
+        if (specifier === '@actharness/cli/dist/runner-bridge.js') {
+          return '/ws/node_modules/@actharness/cli/dist/runner-bridge.js';
+        }
+
+        if (specifier === 'tsx/esm') {
+          throw new Error('not found');
+        }
+
+        throw new Error(`not found: ${specifier}`);
+      }),
+    } as never);
 
     const run = makeRun();
     const item = makeItem(`file:///ws/greet.test.ts::greets`);
@@ -150,9 +228,6 @@ describe('runTests', () => {
 
   it('spawns bridge and marks items started/passed on success', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
-    vi.mocked(createRequire).mockReturnValue({
-      resolve: vi.fn().mockReturnValue('/ws/node_modules/tsx/dist/esm/index.cjs'),
-    } as never);
 
     const item = makeItem(`file:///ws/greet.test.ts::greets`);
     const run = makeRun();
@@ -176,9 +251,6 @@ describe('runTests', () => {
 
   it('marks remaining items errored on non-zero exit', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
-    vi.mocked(createRequire).mockReturnValue({
-      resolve: vi.fn().mockReturnValue('/ws/node_modules/tsx/dist/esm/index.cjs'),
-    } as never);
 
     const item = makeItem(`file:///ws/greet.test.ts::greets`);
     const run = makeRun();
@@ -196,9 +268,6 @@ describe('runTests', () => {
 
   it('kills child and marks items skipped on cancellation', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
-    vi.mocked(createRequire).mockReturnValue({
-      resolve: vi.fn().mockReturnValue('/ws/node_modules/tsx/dist/esm/index.cjs'),
-    } as never);
 
     const item = makeItem(`file:///ws/greet.test.ts::greets`);
     const run = makeRun();
@@ -218,9 +287,6 @@ describe('runTests', () => {
 
   it('uses "node" as fallback when nodeExecutable config returns undefined', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
-    vi.mocked(createRequire).mockReturnValue({
-      resolve: vi.fn().mockReturnValue('/ws/node_modules/tsx/dist/esm/index.cjs'),
-    } as never);
     // Override getConfiguration to return undefined for nodeExecutable
     vi.spyOn(workspace, 'getConfiguration').mockReturnValue({
       get: vi.fn().mockReturnValue(undefined),
@@ -244,9 +310,6 @@ describe('runTests', () => {
 
   it('processes remaining buffer on close', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
-    vi.mocked(createRequire).mockReturnValue({
-      resolve: vi.fn().mockReturnValue('/ws/node_modules/tsx/dist/esm/index.cjs'),
-    } as never);
 
     const item = makeItem(`file:///ws/greet.test.ts::greets`);
     const run = makeRun();
@@ -270,9 +333,6 @@ describe('runTests', () => {
 
   it('uses fallback error message when stderr is empty on failure', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
-    vi.mocked(createRequire).mockReturnValue({
-      resolve: vi.fn().mockReturnValue('/ws/node_modules/tsx/dist/esm/index.cjs'),
-    } as never);
 
     const item = makeItem(`file:///ws/greet.test.ts::greets`);
     const run = makeRun();
@@ -292,9 +352,6 @@ describe('runTests', () => {
 
   it('does not add items without a uri to the file set', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
-    vi.mocked(createRequire).mockReturnValue({
-      resolve: vi.fn().mockReturnValue('/ws/node_modules/tsx/dist/esm/index.cjs'),
-    } as never);
 
     const itemWithUri = makeItem(`file:///ws/greet.test.ts::greets`);
     const itemWithoutUri = { ...makeItem('no-uri-item'), uri: undefined } as AnyItem;
@@ -316,9 +373,6 @@ describe('runTests', () => {
 
   it('does not skip already-completed items on cancellation', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
-    vi.mocked(createRequire).mockReturnValue({
-      resolve: vi.fn().mockReturnValue('/ws/node_modules/tsx/dist/esm/index.cjs'),
-    } as never);
 
     const item = makeItem(`file:///ws/greet.test.ts::greets`);
     const run = makeRun();
@@ -342,9 +396,6 @@ describe('runTests', () => {
 
   it('does not error already-completed items on non-zero exit', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
-    vi.mocked(createRequire).mockReturnValue({
-      resolve: vi.fn().mockReturnValue('/ws/node_modules/tsx/dist/esm/index.cjs'),
-    } as never);
 
     const item = makeItem(`file:///ws/greet.test.ts::greets`);
     const run = makeRun();
@@ -367,9 +418,6 @@ describe('runTests', () => {
 
   it('passes the filter as --pattern to the bridge', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
-    vi.mocked(createRequire).mockReturnValue({
-      resolve: vi.fn().mockReturnValue('/ws/node_modules/tsx/dist/esm/index.cjs'),
-    } as never);
 
     const item = makeItem(`file:///ws/greet.test.ts::greets`);
     const run = makeRun();

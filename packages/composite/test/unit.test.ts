@@ -1,100 +1,162 @@
-// Unit tests for ShellSandbox — real shell processes (sh, python3, node, {0}, timeout).
-// No mocking: all processes run for real on this machine.
+// Unit test for composite-executor covering edge cases not exercisable via integration tests.
 
-import { describe, it, expect } from 'vitest';
-import { ShellSandbox } from '../src/shell-sandbox.js';
+import { describe, it, expect, vi } from 'vitest';
+import type { ParsedAction } from '@actharness/types';
 
-describe('ShellSandbox — shell types (real processes)', () => {
-  it('sh shell runs a script', async () => {
-    const sandbox = new ShellSandbox();
-    const result = await sandbox.shell({ script: 'echo hello', shell: 'sh', env: {}, cwd: '/' });
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout.trim()).toBe('hello');
-    expect(result.timedOut).toBe(false);
-  });
+// Mock @actharness/core before importing composite-executor
+vi.mock('@actharness/core', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@actharness/core')>();
+  return {
+    ...original,
+    runSteps: vi.fn(),
+    evalTemplate: vi.fn((template: string) => template),
+  };
+});
 
-  it('python3 shell runs a .py script', async () => {
-    const sandbox = new ShellSandbox();
-    const result = await sandbox.shell({
-      script: 'print("hello from python")',
-      shell: 'python3',
-      env: {},
-      cwd: '/',
+// Mock @actharness/shell to avoid real bash processes
+vi.mock('@actharness/shell', () => ({
+  ShellSandbox: class {
+    shell = vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '', timedOut: false });
+    endRun = vi.fn();
+  },
+}));
+
+describe('compositeExecutor — pythonCoverageData shellCoverage branch', () => {
+  it('routes step.shellCoverage with pythonCoverageData to the else branch (covers line 39)', async () => {
+    const { runSteps } = await import('@actharness/core');
+    const { compositeExecutor } = await import('../src/composite-executor.js');
+
+    const pythonCoverageData = { executedLines: [1], missingLines: [], executedBranches: [] as [number, number][], missingBranches: [] as [number, number][] };
+    const mockStep = {
+      id: 'step1', name: 'run', phase: 'main' as const,
+      ran: true, outcome: 'success' as const, conclusion: 'success' as const,
+      outputs: {}, annotations: [], stdout: '', stderr: '',
+      shellCoverage: { pythonCoverageData },
+    };
+
+    vi.mocked(runSteps).mockResolvedValue({
+      steps: [mockStep],
+      finalEnv: {},
+      annotations: [],
+      stdout: '',
+      stderr: '',
     });
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout.trim()).toBe('hello from python');
-  });
 
-  it('node shell runs a .js script', async () => {
-    const sandbox = new ShellSandbox();
-    const result = await sandbox.shell({
-      script: 'console.log("hello from node")',
-      shell: 'node',
-      env: {},
-      cwd: '/',
+    const fakeAction: ParsedAction = {
+      name: 'Fake',
+      _file: '/fake/action/action.yml',
+      _dir: '/fake/action',
+      runs: { using: 'composite', steps: [] },
+    };
+
+    const result = await compositeExecutor.execute({
+      action: fakeAction,
+      inputs: {},
+      context: { github: { workspace: '/tmp/fake-ws' } } as never,
+      protocol: {} as never,
+      options: {},
+      mocks: {} as never,
+      sandbox: {} as never,
+      dispatch: vi.fn(),
+      cycleGuard: [],
+      depth: 0,
     });
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout.trim()).toBe('hello from node');
+
+    expect(result.shellCoverage).toBeDefined();
+    const entry = result.shellCoverage![0]!;
+    expect('pythonCoverageData' in entry).toBe(true);
   });
+});
 
-  it('custom {0} shell expands the script path placeholder', async () => {
-    const sandbox = new ShellSandbox();
-    const result = await sandbox.shell({
-      script: 'echo from-custom',
-      shell: 'bash {0}',
-      env: {},
-      cwd: '/',
+describe('compositeExecutor — nodeCoverageData shellCoverage branch', () => {
+  it('routes step.shellCoverage with nodeCoverageData to the else-if branch (covers line 39)', async () => {
+    const { runSteps } = await import('@actharness/core');
+    const { compositeExecutor } = await import('../src/composite-executor.js');
+
+    const nodeCoverageData = [{ path: '/tmp/script.js', v8Data: { functions: [] } }];
+    const mockStep = {
+      id: 'step1', name: 'run', phase: 'main' as const,
+      ran: true, outcome: 'success' as const, conclusion: 'success' as const,
+      outputs: {}, stdout: '', stderr: '',
+      shellCoverage: { nodeCoverageData },
+      annotations: [],
+    };
+
+    vi.mocked(runSteps).mockResolvedValue({
+      steps: [mockStep],
+      finalEnv: {},
+      annotations: [],
+      stdout: '',
+      stderr: '',
     });
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout.trim()).toBe('from-custom');
+
+    const fakeAction: ParsedAction = {
+      name: 'Fake',
+      _file: '/fake/action/action.yml',
+      _dir: '/fake/action',
+      runs: { using: 'composite', steps: [] },
+    };
+
+    const result = await compositeExecutor.execute({
+      action: fakeAction,
+      inputs: {},
+      context: { github: { workspace: '/tmp/fake-ws' } } as never,
+      protocol: {} as never,
+      options: {},
+      mocks: {} as never,
+      sandbox: {} as never,
+      dispatch: vi.fn(),
+      cycleGuard: [],
+      depth: 0,
+    });
+
+    expect(result.shellCoverage).toBeDefined();
+    const entry = result.shellCoverage![0]!;
+    expect('nodeCoverageData' in entry).toBe(true);
   });
+});
 
-  it('fallthrough: unrecognised shell name is used as-is', async () => {
-    const sandbox = new ShellSandbox();
-    const result = await sandbox.shell({
-      script: 'echo fallthrough',
-      shell: '/bin/sh',
-      env: {},
-      cwd: '/',
+describe('compositeExecutor — _file ?? _dir fallback', () => {
+  it('uses _dir when _file is undefined in shellCoverage path key', async () => {
+    const { runSteps } = await import('@actharness/core');
+    const { compositeExecutor } = await import('../src/composite-executor.js');
+
+    const mockStep = {
+      id: 'step1', name: 'run', phase: 'main' as const,
+      ran: true, outcome: 'success' as const, conclusion: 'success' as const,
+      outputs: {}, annotations: [], stdout: '', stderr: '',
+      shellCoverage: { lineHits: { 1: 1 } },
+    };
+
+    vi.mocked(runSteps).mockResolvedValue({
+      steps: [mockStep],
+      finalEnv: {},
+      annotations: [],
+      stdout: '',
+      stderr: '',
     });
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout.trim()).toBe('fallthrough');
+
+    const fakeAction: ParsedAction = {
+      name: 'Fake',
+      _file: undefined,
+      _dir: '/fake/action/dir',
+      runs: { using: 'composite', steps: [] },
+    };
+
+    const result = await compositeExecutor.execute({
+      action: fakeAction,
+      inputs: {},
+      context: { github: { workspace: '/tmp/fake-ws' } } as never,
+      protocol: {} as never,
+      options: {},
+      mocks: {} as never,
+      sandbox: {} as never,
+      dispatch: vi.fn(),
+      cycleGuard: [],
+      depth: 0,
+    });
+
+    expect(result.shellCoverage).toBeDefined();
+    expect(result.shellCoverage![0]!.path).toBe('/fake/action/dir#step1');
   });
-
-  it('sends SIGKILL when process survives SIGTERM (covers SIGKILL fallback)', async () => {
-    const sandbox = new ShellSandbox();
-    // trap ignores SIGTERM; sleep redirects its stdio so it doesn't hold the pipe
-    // open after sh is SIGKILL'd — pipe closes when sh dies, triggering close event
-    const result = await sandbox.shell({
-      script: 'trap "" TERM; sleep 10 >/dev/null 2>&1',
-      shell: 'sh',
-      env: {},
-      cwd: '/',
-      timeout: 100,
-    });
-    expect(result.timedOut).toBe(true);
-    expect(result.exitCode).toBe(124);
-  }, 10_000);
-
-  it('captures stderr output from real shell', async () => {
-    const sandbox = new ShellSandbox();
-    const result = await sandbox.shell({ script: 'echo errtext >&2', shell: 'sh', env: {}, cwd: '/' });
-    expect(result.exitCode).toBe(0);
-    expect(result.stderr.trim()).toBe('errtext');
-  });
-
-  it('timeout: timedOut=true and exitCode=124 when script exceeds timeout', async () => {
-    const sandbox = new ShellSandbox();
-    // exec replaces sh with sleep directly so SIGTERM reaches the sleep process and
-    // the pipe closes immediately — avoids orphaned grandchild holding the pipe open.
-    const result = await sandbox.shell({
-      script: 'exec sleep 100',
-      shell: 'sh',
-      env: {},
-      cwd: '/',
-      timeout: 50,
-    });
-    expect(result.timedOut).toBe(true);
-    expect(result.exitCode).toBe(124);
-  }, 10_000);
 });

@@ -215,6 +215,22 @@ describe('ContextStore', () => {
     expect(store.annotations).toEqual([]);
   });
 
+  it('createContextStore seeds masks from provided secret values', () => {
+    const jobStatus = createJobStatus();
+    const store = createContextStore({
+      github: { ...GITHUB_DEFAULTS, workspace: '/ws' },
+      runner: { ...RUNNER_DEFAULTS },
+      inputs: {},
+      env: {},
+      secrets: { MY_TOKEN: 'supersecret', OTHER: 'also-secret' },
+      matrix: {},
+      needs: {},
+      jobStatus,
+    });
+    expect(store.masks.has('supersecret')).toBe(true);
+    expect(store.masks.has('also-secret')).toBe(true);
+  });
+
   it('updateStoreStep adds step to store.steps', () => {
     const jobStatus = createJobStatus();
     const store = createContextStore({

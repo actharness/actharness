@@ -1,0 +1,10 @@
+name: Node Reader (relative path)
+description: Reads data.txt via a bare relative path, matching real GitHub Actions runner cwd fidelity.
+
+outputs:
+  value:
+    description: contents of data.txt
+
+runs:
+  using: node22
+  main: dist/index.js

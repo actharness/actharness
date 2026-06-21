@@ -1,0 +1,128 @@
+name: Pwsh Shell Demo
+description: "Exercises shell: pwsh (PowerShell 7+) — inputs, outputs, env, GITHUB_ENV, GITHUB_PATH, if:, continue-on-error, working-directory, annotations, and failure path."
+author: actharness
+
+inputs:
+  name:
+    description: Name to greet. Optional — defaults to World.
+    default: "World"
+  should-fail:
+    description: When true, triggers a step failure to test failure() condition.
+    required: true
+
+outputs:
+  greeting:
+    description: Greeting produced from the name input
+    value: ${{ steps.greet.outputs.greeting }}
+  env-value:
+    description: Value read from the seeded env
+    value: ${{ steps.read-env.outputs.env-value }}
+  step-env-value:
+    description: Value produced by the step-level env override
+    value: ${{ steps.override-env.outputs.step-env-value }}
+  restored-env:
+    description: Seed env value as seen by the step after the override
+    value: ${{ steps.restored-env-step.outputs.restored-env }}
+  threaded-env:
+    description: Value written to GITHUB_ENV in one step and read in the next
+    value: ${{ steps.read-github-env.outputs.threaded-env }}
+  cwd-name:
+    description: Basename of the working directory used by the working-directory step
+    value: ${{ steps.check-cwd.outputs.cwd-name }}
+  has-custom-bin:
+    description: Whether /custom/bin was prepended to PATH via GITHUB_PATH
+    value: ${{ steps.check-path.outputs.has-custom-bin }}
+
+runs:
+  using: composite
+  steps:
+    - id: greet
+      shell: pwsh
+      run: |
+        Add-Content -Path $Env:GITHUB_OUTPUT -Value "greeting=Hello, ${{ inputs.name }}!"
+
+    - id: read-env
+      shell: pwsh
+      run: |
+        Add-Content -Path $Env:GITHUB_OUTPUT -Value "env-value=$Env:TEST_ENV"
+
+    - id: override-env
+      shell: pwsh
+      env:
+        TEST_ENV: "https://staging.example.com"
+      run: |
+        Add-Content -Path $Env:GITHUB_OUTPUT -Value "step-env-value=$Env:TEST_ENV"
+
+    - id: restored-env-step
+      shell: pwsh
+      run: |
+        Add-Content -Path $Env:GITHUB_OUTPUT -Value "restored-env=$Env:TEST_ENV"
+
+    - id: set-github-env
+      shell: pwsh
+      run: |
+        Add-Content -Path $Env:GITHUB_ENV -Value "THREADED_VALUE=from-set-github-env"
+
+    - id: read-github-env
+      shell: pwsh
+      run: |
+        Add-Content -Path $Env:GITHUB_OUTPUT -Value "threaded-env=$Env:THREADED_VALUE"
+
+    - id: setup-subdir
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path subdir | Out-Null
+
+    - id: check-cwd
+      shell: pwsh
+      working-directory: ./subdir
+      run: |
+        $name = (Get-Location).Path | Split-Path -Leaf
+        Add-Content -Path $Env:GITHUB_OUTPUT -Value "cwd-name=$name"
+
+    - id: add-path
+      shell: pwsh
+      run: |
+        Add-Content -Path $Env:GITHUB_PATH -Value "/custom/bin"
+
+    - id: check-path
+      shell: pwsh
+      run: |
+        if ($Env:PATH -like "*custom/bin*") {
+          Add-Content -Path $Env:GITHUB_OUTPUT -Value "has-custom-bin=true"
+        } else {
+          Add-Content -Path $Env:GITHUB_OUTPUT -Value "has-custom-bin=false"
+        }
+
+    - id: write-warning
+      shell: pwsh
+      run: |
+        Write-Warning "something looks off"
+        Write-Host "host output"
+
+    - id: flaky
+      shell: pwsh
+      continue-on-error: true
+      run: exit 1
+
+    - id: warn
+      shell: pwsh
+      run: |
+        Write-Output "::warning::low disk space"
+
+    - id: trigger-failure
+      if: ${{ inputs.should-fail == 'true' }}
+      shell: pwsh
+      run: |
+        Write-Output "::error::abort requested"
+        exit 1
+
+    - id: on-failure
+      if: ${{ failure() }}
+      shell: pwsh
+      run: Write-Output "failure handler ran"
+
+    - id: always-runs
+      if: ${{ always() }}
+      shell: pwsh
+      run: Write-Output "always handler ran"

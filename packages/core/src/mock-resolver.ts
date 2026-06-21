@@ -3,7 +3,7 @@
 // Policy: local ./ → real by default; remote → noop + warning by default.
 
 import type { ActharnessOptions } from '@actharness/types';
-import { MissingMockError, CycleError, MaxDepthError } from './errors.js';
+import { MissingMockError, ConfigError, CycleError, MaxDepthError } from './errors.js';
 import { lookupMock } from './mock-scope.js';
 import type { ActionMockHandle } from './mock-scope.js';
 
@@ -47,7 +47,7 @@ export class MockRegistry {
     const policy = isLocal ? localPolicy : remotePolicy;
 
     if (policy === 'real') {
-      if (!isLocal) throw new MissingMockError(ref);
+      if (!isLocal) throw new ConfigError(`unmockedUses: 'real' is not supported for remote refs ('${ref}'). Set unmockedUses to 'noop' or 'error', or add an explicit mock.`);
       return { kind: 'real' };
     }
 

@@ -121,6 +121,16 @@ describe('parseTestArgs', () => {
     expect(opts.reporters).toEqual(['lcov']);
   });
 
+  it('--reporter accepts comma-separated values', () => {
+    const opts = parseTestArgs(['--reporter', 'html,lcov']);
+    expect(opts.reporters).toEqual(['html', 'lcov']);
+  });
+
+  it('--reporter comma-separated and repeated flags both work', () => {
+    const opts = parseTestArgs(['--reporter', 'html,lcov', '--reporter', 'text']);
+    expect(opts.reporters).toEqual(['html', 'lcov', 'text']);
+  });
+
   it('parses --threshold', () => {
     expect(parseTestArgs(['--threshold', 'statements=90']).thresholds['statements']).toBe(90);
   });
@@ -141,6 +151,14 @@ describe('parseTestArgs', () => {
     const opts = parseTestArgs(['--threshold', 'noequals']);
     expect(Object.keys(opts.thresholds)).toHaveLength(0);
   });
+
+  it('parses --workers flag', () => {
+    expect(parseTestArgs(['--workers', '4']).workers).toBe(4);
+  });
+
+  it('clamps --workers to 1 when value parses to zero', () => {
+    expect(parseTestArgs(['--workers', '0']).workers).toBe(1);
+  });
 });
 
 // ── defaultRegisterUrl ────────────────────────────────────────────────────────
@@ -156,11 +174,11 @@ describe('defaultRegisterUrl', () => {
 // ── checkThresholds ───────────────────────────────────────────────────────────
 
 describe('checkThresholds', () => {
-  it('returns false when thresholds object is empty', () => {
-    expect(checkThresholds(new CoverageCollector(), {}, '/tmp/cov')).toBe(false);
+  it('returns false when thresholds object is empty', async () => {
+    expect(await checkThresholds(new CoverageCollector(), {}, '/tmp/cov')).toBe(false);
   });
 
-  it('returns false when all thresholds are met', () => {
+  it('returns false when all thresholds are met', async () => {
     const collector = CoverageCollector.fromParts(
       {
         '/fake/action.yml': {
@@ -171,10 +189,10 @@ describe('checkThresholds', () => {
       },
       [],
     );
-    expect(checkThresholds(collector, { steps: 90 }, '/tmp/cov')).toBe(false);
+    expect(await checkThresholds(collector, { steps: 90 }, '/tmp/cov')).toBe(false);
   });
 
-  it('returns true and logs error when threshold not met', () => {
+  it('returns true and logs error when threshold not met', async () => {
     const collector = CoverageCollector.fromParts(
       {
         '/fake/action.yml': {
@@ -186,14 +204,14 @@ describe('checkThresholds', () => {
       [],
     );
     const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    expect(checkThresholds(collector, { steps: 80 }, '/tmp/cov')).toBe(true);
+    expect(await checkThresholds(collector, { steps: 80 }, '/tmp/cov')).toBe(true);
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
   });
 
-  it('uses 0 for unknown threshold key', () => {
+  it('uses 0 for unknown threshold key', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    expect(checkThresholds(new CoverageCollector(), { unknownMetric: 50 }, '/tmp/cov')).toBe(true);
+    expect(await checkThresholds(new CoverageCollector(), { unknownMetric: 50 }, '/tmp/cov')).toBe(true);
     spy.mockRestore();
   });
 });
@@ -250,6 +268,18 @@ describe('mergeCoverageData', () => {
     const collector = mergeCoverageData(tmpDir);
     expect(Object.keys(collector.coverageMap.toJSON())).toHaveLength(0);
   });
+
+  it('merges pwshShellCoverageEntries from fragment', () => {
+    const fragment = {
+      istanbulMap: {},
+      pwshShellCoverageEntries: [{ key: 'a.yml#step1', lineHits: { 1: 2 } }],
+    };
+    writeFileSync(join(tmpDir, 'frag.json'), JSON.stringify(fragment));
+    const collector = mergeCoverageData(tmpDir);
+    const frag = collector.toFragment();
+    expect(frag.pwshShellCoverageEntries).toHaveLength(1);
+    expect(frag.pwshShellCoverageEntries![0]!.key).toBe('a.yml#step1');
+  });
 });
 
 // ── runTests ──────────────────────────────────────────────────────────────────
@@ -276,16 +306,19 @@ describe('runTests', () => {
     spy.mockRestore();
   });
 
-  it('counts pass events at nesting 0', async () => {
+  it('counts pass events at leaf nesting', async () => {
     hoisted.mockGlob.mockResolvedValue(['/fake/test.ts']);
-    mockTestEvents = [{ type: 'test:pass', data: { name: 't', nesting: 0, details: { duration_ms: 1 } } }];
+    mockTestEvents = [
+      { type: 'test:start', data: { name: 't', nesting: 0, file: '/fake/test.ts' } },
+      { type: 'test:pass', data: { name: 't', nesting: 0, file: '/fake/test.ts', details: { duration_ms: 1 } } },
+    ];
     const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const result = await runTests({ patterns: ['*.test.ts'], coverage: false, reporters: [], coverageDir: '/tmp', thresholds: {} }, REG, TSX);
     expect(result.passed).toBe(1);
     spy.mockRestore();
   });
 
-  it('ignores pass events at nesting > 0', async () => {
+  it('does not count orphaned pass when no matching test:start', async () => {
     hoisted.mockGlob.mockResolvedValue(['/fake/test.ts']);
     mockTestEvents = [{ type: 'test:pass', data: { name: 'nested', nesting: 1, details: { duration_ms: 1 } } }];
     const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -294,9 +327,12 @@ describe('runTests', () => {
     spy.mockRestore();
   });
 
-  it('counts fail events at nesting 0', async () => {
+  it('counts fail events at leaf nesting', async () => {
     hoisted.mockGlob.mockResolvedValue(['/fake/test.ts']);
-    mockTestEvents = [{ type: 'test:fail', data: { name: 'bad', nesting: 0, details: { duration_ms: 1, error: new Error('x') } } }];
+    mockTestEvents = [
+      { type: 'test:start', data: { name: 'bad', nesting: 0, file: '/fake/test.ts' } },
+      { type: 'test:fail', data: { name: 'bad', nesting: 0, file: '/fake/test.ts', details: { duration_ms: 1, error: new Error('x') } } },
+    ];
     const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const result = await runTests({ patterns: ['*.test.ts'], coverage: false, reporters: [], coverageDir: '/tmp', thresholds: {} }, REG, TSX);
     expect(result.failed).toBe(1);
@@ -305,19 +341,88 @@ describe('runTests', () => {
 
   it('uses String(err) when error has no message', async () => {
     hoisted.mockGlob.mockResolvedValue(['/fake/test.ts']);
-    mockTestEvents = [{ type: 'test:fail', data: { name: 'bad', nesting: 0, details: { duration_ms: 1, error: null } } }];
+    mockTestEvents = [
+      { type: 'test:start', data: { name: 'bad', nesting: 0, file: '/fake/test.ts' } },
+      { type: 'test:fail', data: { name: 'bad', nesting: 0, file: '/fake/test.ts', details: { duration_ms: 1, error: null } } },
+    ];
     const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     await runTests({ patterns: ['*.test.ts'], coverage: false, reporters: [], coverageDir: '/tmp', thresholds: {} }, REG, TSX);
     expect(spy.mock.calls.some((c) => String(c[0]).includes('null'))).toBe(true);
     spy.mockRestore();
   });
 
-  it('ignores fail events at nesting > 0', async () => {
+  it('does not count orphaned fail when no matching test:start', async () => {
     hoisted.mockGlob.mockResolvedValue(['/fake/test.ts']);
     mockTestEvents = [{ type: 'test:fail', data: { name: 'nested', nesting: 2, details: { duration_ms: 1, error: new Error('x') } } }];
     const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const result = await runTests({ patterns: ['*.test.ts'], coverage: false, reporters: [], coverageDir: '/tmp', thresholds: {} }, REG, TSX);
     expect(result.failed).toBe(0);
+    spy.mockRestore();
+  });
+
+  it('renders describe+test hierarchy: describe as header, test with icon', async () => {
+    hoisted.mockGlob.mockResolvedValue(['/fake/test.ts']);
+    mockTestEvents = [
+      { type: 'test:start', data: { name: '/fake/test.ts', nesting: 0 } },               // file-suite wrapper (no d.file) → skipped
+      { type: 'test:start', data: { name: 'Suite', nesting: 0, file: '/fake/test.ts' } }, // describe A at nesting=0
+      { type: 'test:start', data: { name: 'Suite', nesting: 0, file: '/fake/test.ts' } }, // describe B at nesting=0 (covers !has false branch)
+      { type: 'test:start', data: { name: 'a test', nesting: 1, file: '/fake/test.ts' } },
+      { type: 'test:pass', data: { name: 'a test', nesting: 1, file: '/fake/test.ts', details: { duration_ms: 1 } } },
+      { type: 'test:pass', data: { name: 'Suite', nesting: 0, file: '/fake/test.ts', details: { duration_ms: 1 } } },
+      { type: 'test:pass', data: { name: '/fake/test.ts', nesting: 0, details: { duration_ms: 1 } } }, // file-suite wrapper → skipped
+    ];
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const result = await runTests({ patterns: ['*.test.ts'], coverage: false, reporters: [], coverageDir: '/tmp', thresholds: {} }, REG, TSX);
+    expect(result.passed).toBe(1);
+    const calls = spy.mock.calls.map((c) => String(c[0]));
+    expect(calls.some((c) => c.includes('Suite') && !c.includes('✓') && !c.includes('✗'))).toBe(true);
+    expect(calls.some((c) => c.includes('✓') && c.includes('a test'))).toBe(true);
+    spy.mockRestore();
+  });
+
+  it('handles test:start at nesting > 0 with no parent in stack', async () => {
+    hoisted.mockGlob.mockResolvedValue(['/fake/test.ts']);
+    mockTestEvents = [
+      { type: 'test:start', data: { name: 'orphan', nesting: 1, file: '/fake/test.ts' } },
+    ];
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const result = await runTests({ patterns: ['*.test.ts'], coverage: false, reporters: [], coverageDir: '/tmp', thresholds: {} }, REG, TSX);
+    expect(result.passed).toBe(0);
+    spy.mockRestore();
+  });
+
+  it('does not print file section when no test lines are collected', async () => {
+    hoisted.mockGlob.mockResolvedValue(['/fake/test.ts']);
+    mockTestEvents = [
+      { type: 'test:pass', data: { name: '/fake/test.ts', nesting: 0, details: { duration_ms: 1 } } },
+    ];
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const result = await runTests({ patterns: ['*.test.ts'], coverage: false, reporters: [], coverageDir: '/tmp', thresholds: {} }, REG, TSX);
+    expect(result.passed).toBe(0);
+    spy.mockRestore();
+  });
+
+  it('does not count pass when no matching test:start exists for that nesting', async () => {
+    hoisted.mockGlob.mockResolvedValue(['/fake/test.ts']);
+    mockTestEvents = [
+      { type: 'test:pass', data: { name: 't', nesting: 1, file: '/fake/test.ts', details: { duration_ms: 1 } } },
+      { type: 'test:pass', data: { name: '/fake/test.ts', nesting: 0, details: { duration_ms: 1 } } },
+    ];
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const result = await runTests({ patterns: ['*.test.ts'], coverage: false, reporters: [], coverageDir: '/tmp', thresholds: {} }, REG, TSX);
+    expect(result.passed).toBe(0);
+    spy.mockRestore();
+  });
+
+  it('handles test:fail without details object', async () => {
+    hoisted.mockGlob.mockResolvedValue(['/fake/test.ts']);
+    mockTestEvents = [
+      { type: 'test:start', data: { name: 't', nesting: 0, file: '/fake/test.ts' } },
+      { type: 'test:fail', data: { name: 't', nesting: 0, file: '/fake/test.ts' } },
+    ];
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const result = await runTests({ patterns: ['*.test.ts'], coverage: false, reporters: [], coverageDir: '/tmp', thresholds: {} }, REG, TSX);
+    expect(result.failed).toBe(1);
     spy.mockRestore();
   });
 
@@ -328,6 +433,28 @@ describe('runTests', () => {
     const result = await runTests({ patterns: ['*.test.ts'], coverage: false, reporters: [], coverageDir: '/tmp', thresholds: {} }, REG, TSX);
     expect(result.passed).toBe(0);
     expect(result.failed).toBe(0);
+    spy.mockRestore();
+  });
+
+  it('skips nesting=0 events without d.file regardless of event type', async () => {
+    hoisted.mockGlob.mockResolvedValue(['/fake/test.ts']);
+    mockTestEvents = [{ type: 'test:plan', data: { nesting: 0, name: '/fake/test.ts', count: 1 } }];
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const result = await runTests({ patterns: ['*.test.ts'], coverage: false, reporters: [], coverageDir: '/tmp', thresholds: {} }, REG, TSX);
+    expect(result.passed).toBe(0);
+    expect(result.failed).toBe(0);
+    spy.mockRestore();
+  });
+
+  it('uses workers from opts when explicitly set', async () => {
+    hoisted.mockGlob.mockResolvedValue(['/fake/test.ts']);
+    mockTestEvents = [
+      { type: 'test:start', data: { name: 't', nesting: 0, file: '/fake/test.ts' } },
+      { type: 'test:pass', data: { name: 't', nesting: 0, file: '/fake/test.ts', details: { duration_ms: 1 } } },
+    ];
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const result = await runTests({ patterns: ['*.test.ts'], coverage: false, reporters: [], coverageDir: '/tmp', thresholds: {}, workers: 1 }, REG, TSX);
+    expect(result.passed).toBe(1);
     spy.mockRestore();
   });
 
@@ -422,7 +549,11 @@ describe('testCommand', () => {
 
   it('returns 1 when a test fails', async () => {
     hoisted.mockGlob.mockResolvedValue(['/fake/test.ts']);
-    mockTestEvents = [{ type: 'test:fail', data: { name: 'bad', nesting: 0, details: { duration_ms: 1, error: new Error('x') } } }];
+    mockTestEvents = [
+      { type: 'test:start', data: { name: 'bad', nesting: 1, file: '/fake/test.ts' } },
+      { type: 'test:fail', data: { name: 'bad', nesting: 1, file: '/fake/test.ts', details: { duration_ms: 1, error: new Error('x') } } },
+      { type: 'test:fail', data: { name: '/fake/test.ts', nesting: 0, details: { duration_ms: 1, error: new Error('suite failed') } } },
+    ];
     const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     expect(await testCommand([], REG, TSX)).toBe(1);
     spy.mockRestore();
@@ -784,6 +915,10 @@ describe('parseTestArgs with config', () => {
   it('CLI --coverage-dir overrides config.coverageDir', () => {
     const opts = parseTestArgs(['--coverage-dir', '/tmp/out'], { coverageDir: 'reports' });
     expect(opts.coverageDir).toBe('/tmp/out');
+  });
+
+  it('config.workers used as default workers', () => {
+    expect(parseTestArgs([], { workers: 3 }).workers).toBe(3);
   });
 });
 

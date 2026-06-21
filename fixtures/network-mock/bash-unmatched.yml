@@ -1,0 +1,16 @@
+name: Network Mock — unmatched request blocked
+description: Fixture J — no mock registered for this URL, proxy returns 502
+
+outputs:
+  status:
+    description: HTTP status code returned by the proxy
+    value: ${{ steps.fetch.outputs.status }}
+
+runs:
+  using: composite
+  steps:
+    - id: fetch
+      shell: bash
+      run: |
+        status=$(curl -s -o /dev/null -w "%{http_code}" https://real-server.com/api)
+        echo "status=$status" >> "$GITHUB_OUTPUT"

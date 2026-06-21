@@ -1,0 +1,8 @@
+name: 'Mask Action'
+description: 'actharness/node fixture — emits add-mask command to test mask accumulation.'
+outputs:
+  result:
+    description: 'Always "done"'
+runs:
+  using: 'node22'
+  main: 'index.js'

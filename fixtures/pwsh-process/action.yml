@@ -1,0 +1,25 @@
+name: Pwsh Process Isolation
+description: "Exercises pwsh-isolation: process — one pwsh process per step. Script has an if/else to verify coverage tracking."
+author: actharness
+
+inputs:
+  value:
+    description: Integer. Controls which branch is taken.
+    required: true
+
+outputs:
+  result:
+    description: "high when value > 10, low otherwise"
+    value: ${{ steps.check.outputs.result }}
+
+runs:
+  using: composite
+  steps:
+    - id: check
+      shell: pwsh
+      run: |
+        if ([int]'${{ inputs.value }}' -gt 10) {
+          Add-Content -Path $Env:GITHUB_OUTPUT -Value "result=high"
+        } else {
+          Add-Content -Path $Env:GITHUB_OUTPUT -Value "result=low"
+        }

@@ -2,16 +2,27 @@
 // Downstream of the run sink; @actharness/core never imports this.
 
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import type { RunListener, RunResultMeta } from '@actharness/core';
-import type { RunResult } from '@actharness/types';
+import type { NodeCoverageData, RunResult } from '@actharness/types';
 import { parseAction } from '@actharness/core';
 import { createCoverageMap } from './istanbul-compat.js';
 import type { CoverageMap } from './istanbul-compat.js';
 import { buildActionCoverage } from './coverage-map.js';
+import { mergeJsCoverage, buildJsStats } from './js-coverage.js';
+import { buildShStats } from './sh-coverage.js';
+import { buildPwshStats } from './pwsh-coverage.js';
+import { buildPythonStats } from './python-coverage.js';
 import type {
   CoverageReport,
   FileCoverage,
+  JsFileCoverage,
+  NodeShellFileCoverage,
+  PythonShellFileCoverage,
+  ShShellFileCoverage,
+  BashShellFileCoverage,
+  PwshShellFileCoverage,
+  PythonCoverageData,
   CoverageStat,
   IfBranchRow,
   CoverageMetric,
@@ -28,6 +39,7 @@ interface RawStatementEntry {
 interface RawBranchEntry {
   _stepId?: string;
   _expression?: string;
+  _falseBranchImpossible?: boolean;
 }
 
 interface RawMapEntry {
@@ -64,11 +76,53 @@ export interface StepReachedEntry {
   counts: Record<string, number>;
 }
 
+export interface JsCoverageEntry {
+  /** Absolute path of the JS source file. */
+  path: string;
+  /** Raw V8 script coverage object for this file. */
+  v8Data: unknown;
+  /** Inline source text (used for temp scripts that are deleted before toCoverageReport runs). */
+  source?: string;
+}
+
+export interface ShShellCoverageEntry {
+  /** `<actionFilePath>#<stepId>` stable key. */
+  key: string;
+  lineHits: Record<number, number>;
+}
+
+export interface PythonShellCoverageEntry {
+  /** `<actionFilePath>#<stepId>` stable key. */
+  key: string;
+  pythonCoverageData: PythonCoverageData;
+  /** Accumulated hit counts: scriptLineNum → count across all test runs. */
+  lineHits: Record<number, number>;
+}
+
+export interface NodeShellCoverageEntry {
+  /** `<actionFilePath>#<stepId>` stable key. */
+  key: string;
+  /** Raw V8 coverage entries for this step (one per test run). */
+  entries: NodeCoverageData[];
+}
+
 export interface CoverageFragment {
   istanbulMap: unknown;
   inputExercises: InputExerciseEntry[];
   outputExercises: OutputExerciseEntry[];
   stepReachedExercises: StepReachedEntry[];
+  /** accumulated JS coverage entries (one per node action run). */
+  jsCoverageEntries: JsCoverageEntry[];
+  /**accumulated sh line coverage entries (shell: sh only). */
+  shShellCoverageEntries?: ShShellCoverageEntry[];
+  /**accumulated bash line coverage entries (shell: bash only). */
+  bashShellCoverageEntries?: ShShellCoverageEntry[];
+  /**accumulated pwsh line coverage entries. */
+  pwshShellCoverageEntries?: ShShellCoverageEntry[];
+  /**accumulated Python coverage entries (pythonCoverageData + lineHits). */
+  pythonShellCoverageEntries?: PythonShellCoverageEntry[];
+  /**accumulated shell: node raw V8 coverage entries (processed async in toCoverageReport). */
+  nodeShellCoverageEntries?: NodeShellCoverageEntry[];
 }
 
 const STEP_OUTPUT_RE = /^\$\{\{\s*steps\.([\w-]+)\.outputs\.([\w-]+)\s*\}\}$/;
@@ -91,9 +145,18 @@ function statOf(counts: number[]): CoverageStat {
   return { covered, total, pct: total === 0 ? 100 : (covered / total) * 100 };
 }
 
-function branchStatOf(branches: [number, number][]): CoverageStat {
-  const total = branches.length * 2;
-  const covered = branches.reduce((acc, [t, f]) => acc + (t > 0 ? 1 : 0) + (f > 0 ? 1 : 0), 0);
+function branchStatOf(b: Record<string, [number, number]>, branchMap: Record<string, RawBranchEntry>): CoverageStat {
+  let total = 0;
+  let covered = 0;
+  for (const [id, [t, f]] of Object.entries(b)) {
+    if (branchMap[id]?._falseBranchImpossible) {
+      total += 1;
+      covered += t > 0 ? 1 : 0;
+    } else {
+      total += 2;
+      covered += (t > 0 ? 1 : 0) + (f > 0 ? 1 : 0);
+    }
+  }
   return { covered, total, pct: total === 0 ? 100 : (covered / total) * 100 };
 }
 
@@ -102,12 +165,14 @@ function buildIfBranchTable(entry: RawMapEntry): IfBranchRow[] {
   for (const [id, mapping] of Object.entries(entry.branchMap)) {
     if (mapping._expression !== undefined && mapping._stepId !== undefined) {
       const counts = entry.b[id];
-      rows.push({
+      const row: IfBranchRow = {
         step: mapping._stepId,
         expression: mapping._expression,
         trueCount: counts?.[0] ?? 0,
         falseCount: counts?.[1] ?? 0,
-      });
+      };
+      if (mapping._falseBranchImpossible) row.falseBranchImpossible = true;
+      rows.push(row);
     }
   }
   return rows;
@@ -118,12 +183,30 @@ export class CoverageCollector {
   private _inputData: Map<string, InputRecord>;
   private _outputData: Map<string, OutputRecord>;
   private _stepReachedData: Map<string, Record<string, number>>;
+  /** accumulated raw V8 coverage entries from node action runs. */
+  private _jsCoverageEntries: JsCoverageEntry[];
+  /**accumulated sh line hits keyed by `<actionFilePath>#<stepId>`. shell: sh only. */
+  private _shShellCoverageData: Map<string, Record<number, number>>;
+  /**accumulated bash line hits keyed by `<actionFilePath>#<stepId>`. shell: bash only. */
+  private _bashShellCoverageData: Map<string, Record<number, number>>;
+  /**accumulated pwsh line hits keyed by `<actionFilePath>#<stepId>`. */
+  private _pwshShellCoverageData: Map<string, Record<number, number>>;
+  /**accumulated Python coverage data keyed by `<actionFilePath>#<stepId>`. */
+  private _pythonShellCoverageData: Map<string, { pythonCoverageData: PythonCoverageData; lineHits: Record<number, number> }>;
+  /**accumulated shell: node raw V8 entries; processed async in toCoverageReport. */
+  private _nodeShellCoverageEntries: NodeShellCoverageEntry[];
 
   constructor() {
     this._map = createCoverageMap({}) as unknown as CoverageMap;
     this._inputData = new Map();
     this._outputData = new Map();
     this._stepReachedData = new Map();
+    this._jsCoverageEntries = [];
+    this._shShellCoverageData = new Map();
+    this._bashShellCoverageData = new Map();
+    this._pwshShellCoverageData = new Map();
+    this._pythonShellCoverageData = new Map();
+    this._nodeShellCoverageEntries = [];
   }
 
   get coverageMap(): CoverageMap {
@@ -133,12 +216,11 @@ export class CoverageCollector {
   /** Create a RunListener that updates this collector on every run. */
   createListener(): RunListener {
     return (result, meta: RunResultMeta) => {
-      const actionDir = meta.actionDir ?? meta.sourceFile;
-      if (!actionDir) return;
+      if (!meta.sourceFile) return;
 
       let action;
       try {
-        action = parseAction(actionDir);
+        action = parseAction(meta.sourceFile);
       } catch {
         return;
       }
@@ -146,24 +228,39 @@ export class CoverageCollector {
       const fileCoverage = buildActionCoverage(action, result.steps);
       this._map.addFileCoverage(fileCoverage as unknown as Parameters<CoverageMap['addFileCoverage']>[0]);
 
-      /* v8 ignore next -- parseAction always sets _file */
-      if (action._file) {
-        const path = action._file;
-        const reachedRecord = this._stepReachedData.get(path) ?? {};
-        const steps = action.runs.steps ?? [];
-        for (let i = 0; i < steps.length; i++) {
-          const step = steps[i]!;
-          const stepId = step.id ?? `__step_${i + 1}__`;
-          const stepResult = result.steps.find((r) => r.id === stepId);
-          const hasExplicitIf = step.if !== undefined && step.if !== 'success()';
-          const wasReached = hasExplicitIf ? stepResult !== undefined : stepResult?.ran === true;
-          reachedRecord[stepId] = (reachedRecord[stepId] ?? 0) + (wasReached ? 1 : 0);
-        }
-        this._stepReachedData.set(path, reachedRecord);
+      // parseAction always sets _file when given a valid action directory
+      const path = action._file as string;
+
+      const reachedRecord = this._stepReachedData.get(path) ?? {};
+      const steps = action.runs.steps ?? [];
+      for (let i = 0; i < steps.length; i++) {
+        const step = steps[i]!;
+        const stepId = step.id ?? `__step_${i + 1}__`;
+        const stepResult = result.steps.find((r) => r.id === stepId);
+        const hasExplicitIf = step.if !== undefined && step.if !== 'success()';
+        const wasReached = hasExplicitIf ? stepResult !== undefined : stepResult?.ran === true;
+        reachedRecord[stepId] = (reachedRecord[stepId] ?? 0) + (wasReached ? 1 : 0);
       }
 
-      if (meta.inputsExercised && action._file) {
-        const path = action._file;
+      // Node-action phases (pre/main/post) — same "was this exercised" tracking as
+      // composite steps above, keyed by phase name instead of step id.
+      if (!action.runs.steps && action.runs.main) {
+        const phases: { phase: 'pre' | 'main' | 'post'; entrypoint: string | undefined; ifExpr: string | undefined }[] = [
+          { phase: 'pre', entrypoint: action.runs.pre, ifExpr: action.runs['pre-if'] },
+          { phase: 'main', entrypoint: action.runs.main, ifExpr: undefined },
+          { phase: 'post', entrypoint: action.runs.post, ifExpr: action.runs['post-if'] },
+        ];
+        for (const { phase, entrypoint, ifExpr } of phases) {
+          if (!entrypoint) continue;
+          const stepResult = result.steps.find((r) => r.id === phase);
+          const wasReached = ifExpr !== undefined ? stepResult !== undefined : stepResult?.ran === true;
+          reachedRecord[phase] = (reachedRecord[phase] ?? 0) + (wasReached ? 1 : 0);
+        }
+      }
+
+      this._stepReachedData.set(path, reachedRecord);
+
+      if (meta.inputsExercised) {
         let record = this._inputData.get(path);
         if (!record) {
           record = { inputCounts: {}, inputDefs: {} };
@@ -181,9 +278,48 @@ export class CoverageCollector {
         }
       }
 
-      // Accumulate output coverage from action-level outputs
-      if (action._file && action.outputs) {
-        const path = action._file;
+      if (meta.jsCoverage) {
+        const entries = meta.jsCoverage as JsCoverageEntry[];
+        for (const entry of entries) {
+          this._jsCoverageEntries.push(entry);
+        }
+      }
+
+      if (meta.shellCoverage) {
+        const steps = action.runs.steps ?? [];
+        for (const entry of meta.shellCoverage) {
+          const hashIdx = entry.path.lastIndexOf('#');
+          if (hashIdx === -1) continue;
+          if ('pythonCoverageData' in entry) {
+            const hits = this._pythonShellCoverageData.get(entry.path)?.lineHits ?? {};
+            for (const line of entry.pythonCoverageData.executedLines) hits[line] = (hits[line] ?? 0) + 1;
+            for (const line of entry.pythonCoverageData.missingLines) { hits[line] ??= 0; }
+            this._pythonShellCoverageData.set(entry.path, { pythonCoverageData: entry.pythonCoverageData, lineHits: hits });
+          } else if ('nodeCoverageData' in entry) {
+            const existing = this._nodeShellCoverageEntries.find((e) => e.key === entry.path);
+            if (existing) {
+              existing.entries.push(...entry.nodeCoverageData);
+            } else {
+              this._nodeShellCoverageEntries.push({ key: entry.path, entries: [...entry.nodeCoverageData] });
+            }
+          } else {
+            const stepId = entry.path.slice(hashIdx + 1);
+            const step = steps.find((s, i) => (s.id ?? `__step_${i + 1}__`) === stepId);
+            const shell = (step?.shell ?? '').trim().toLowerCase();
+            const isPwsh = shell === 'pwsh' || shell === 'powershell';
+            const isBash = shell === 'bash';
+            const targetMap = isPwsh ? this._pwshShellCoverageData : isBash ? this._bashShellCoverageData : this._shShellCoverageData;
+            const existing = targetMap.get(entry.path) ?? {};
+            for (const [lineStr, count] of Object.entries(entry.lineHits)) {
+              const line = Number(lineStr);
+              existing[line] = (existing[line] ?? 0) + count;
+            }
+            targetMap.set(entry.path, existing);
+          }
+        }
+      }
+
+      if (action.outputs) {
         let outRecord = this._outputData.get(path);
         if (!outRecord) {
           outRecord = { counts: {} };
@@ -199,13 +335,13 @@ export class CoverageCollector {
   }
 
   /** Convert accumulated coverage to the domain CoverageReport. */
-  toCoverageReport(): CoverageReport {
+  async toCoverageReport(): Promise<CoverageReport> {
     const rawMap = this._map.toJSON() as unknown as Record<string, RawMapEntry>;
     const files: Record<string, FileCoverage> = {};
 
     for (const entry of Object.values(rawMap)) {
       const steps = statOf(Object.values(entry.s));
-      const ifBranches = branchStatOf(Object.values(entry.b));
+      const ifBranches = branchStatOf(entry.b, entry.branchMap);
       const ifBranchTable = buildIfBranchTable(entry);
       const inputs = this._computeInputStat(entry.path);
       const inputTable = this._buildInputTable(entry.path);
@@ -237,7 +373,196 @@ export class CoverageCollector {
       };
     }
 
-    return { files, total: aggregateTotals(Object.values(files)) };
+    const jsStatsByPath = mergeJsCoverage(this._jsCoverageEntries);
+    const jsFiles: Record<string, JsFileCoverage> = {};
+    const zero = { covered: 0, total: 0, pct: 0 };
+    for (const [jsPath, entries] of jsStatsByPath) {
+      const rawStats = await buildJsStats(entries);
+      const emptyIstanbul = { s: {}, b: {}, f: {}, statementMap: {}, branchMap: {}, fnMap: {} };
+      jsFiles[jsPath] = {
+        path: jsPath,
+        statements: rawStats.jsStatements ?? zero,
+        branches: rawStats.jsBranches ?? zero,
+        functions: rawStats.jsFunctions ?? zero,
+        lines: rawStats.jsLines ?? zero,
+        istanbulData: rawStats.istanbulData ?? emptyIstanbul,
+      };
+    }
+
+    const shShellFiles: Record<string, ShShellFileCoverage> = {};
+    for (const [key, lineHits] of this._shShellCoverageData) {
+      const hashIdx = key.lastIndexOf('#');
+      if (hashIdx === -1) continue;
+      const actionFilePath = key.slice(0, hashIdx);
+      const stepId = key.slice(hashIdx + 1);
+      const fileCov = files[actionFilePath];
+      if (!fileCov) continue;
+      let action;
+      try {
+        action = parseAction(dirname(actionFilePath));
+      } catch {
+        continue;
+      }
+      const step = (action.runs.steps ?? []).find(
+        (s, i) => (s.id ?? `__step_${i + 1}__`) === stepId,
+      );
+      if (!step?.run) continue;
+      const { lines, executableLines, effectiveHits } = buildShStats(lineHits, step.run);
+      const uncoveredLines = executableLines.filter((n) => (effectiveHits[n] ?? 0) === 0).sort((a, b) => a - b);
+      shShellFiles[key] = { path: key, lines, uncoveredLines };
+      if (!fileCov.shStepLineHits) fileCov.shStepLineHits = {};
+      fileCov.shStepLineHits[stepId] = effectiveHits;
+    }
+
+    const bashShellFiles: Record<string, BashShellFileCoverage> = {};
+    for (const [key, lineHits] of this._bashShellCoverageData) {
+      const hashIdx = key.lastIndexOf('#');
+      if (hashIdx === -1) continue;
+      const actionFilePath = key.slice(0, hashIdx);
+      const stepId = key.slice(hashIdx + 1);
+      const fileCov = files[actionFilePath];
+      if (!fileCov) continue;
+      let action;
+      try {
+        action = parseAction(dirname(actionFilePath));
+      } catch {
+        continue;
+      }
+      const step = (action.runs.steps ?? []).find(
+        (s, i) => (s.id ?? `__step_${i + 1}__`) === stepId,
+      );
+      if (!step?.run) continue;
+      const { lines, executableLines, effectiveHits } = buildShStats(lineHits, step.run);
+      const uncoveredLines = executableLines.filter((n) => (effectiveHits[n] ?? 0) === 0).sort((a, b) => a - b);
+      bashShellFiles[key] = { path: key, lines, uncoveredLines };
+      if (!fileCov.bashStepLineHits) fileCov.bashStepLineHits = {};
+      fileCov.bashStepLineHits[stepId] = effectiveHits;
+    }
+
+    const pwshShellFiles: Record<string, PwshShellFileCoverage> = {};
+    for (const [key, lineHits] of this._pwshShellCoverageData) {
+      const hashIdx = key.lastIndexOf('#');
+      if (hashIdx === -1) continue;
+      const actionFilePath = key.slice(0, hashIdx);
+      const stepId = key.slice(hashIdx + 1);
+      const fileCov = files[actionFilePath];
+      if (!fileCov) continue;
+      let action;
+      try {
+        action = parseAction(dirname(actionFilePath));
+      } catch {
+        continue;
+      }
+      const step = (action.runs.steps ?? []).find(
+        (s, i) => (s.id ?? `__step_${i + 1}__`) === stepId,
+      );
+      if (!step?.run) continue;
+      const { lines, executableLines, effectiveHits } = buildPwshStats(lineHits, step.run);
+      const uncoveredLines = executableLines.filter((n) => (effectiveHits[n] ?? 0) === 0).sort((a, b) => a - b);
+      pwshShellFiles[key] = { path: key, lines, uncoveredLines };
+      if (!fileCov.pwshStepLineHits) fileCov.pwshStepLineHits = {};
+      fileCov.pwshStepLineHits[stepId] = effectiveHits;
+    }
+
+    const pythonShellFiles: Record<string, PythonShellFileCoverage> = {};
+    for (const [key, { pythonCoverageData, lineHits }] of this._pythonShellCoverageData) {
+      const hashIdx = key.lastIndexOf('#');
+      if (hashIdx === -1) continue;
+      const actionFilePath = key.slice(0, hashIdx);
+      const stepId = key.slice(hashIdx + 1);
+      const fileCov = files[actionFilePath];
+      if (!fileCov) continue;
+      const stats = buildPythonStats(pythonCoverageData);
+      pythonShellFiles[key] = {
+        path: key,
+        statements: stats.pythonShellStatements,
+        branches: stats.pythonShellBranches,
+        lines: stats.pythonShellLines,
+        pythonCoverageData,
+      };
+      if (!fileCov.pyStepLineHits) fileCov.pyStepLineHits = {};
+      fileCov.pyStepLineHits[stepId] = lineHits;
+    }
+
+    // Process raw nodeCoverageData entries via v8-to-istanbul and store full Istanbul data per step.
+    const nodeShellFiles: Record<string, NodeShellFileCoverage> = {};
+    for (const { key, entries } of this._nodeShellCoverageEntries) {
+      if (entries.length === 0) continue;
+      const hashIdx = key.lastIndexOf('#');
+      if (hashIdx === -1) continue;
+      const actionFilePath = key.slice(0, hashIdx);
+      const stepId = key.slice(hashIdx + 1);
+      const fileCov = files[actionFilePath];
+      if (!fileCov) continue;
+      const rawStats = await buildJsStats(entries);
+      const d = rawStats.istanbulData;
+      if (!d) continue;
+      // Compute nodeShellLines from statementMap (same derivation as jsLines in buildJsStats)
+      const lineHits: Record<number, number> = {};
+      for (const [id, loc] of Object.entries(d.statementMap)) {
+        const count = d.s[id]!;
+        lineHits[loc.start.line] = Math.max(lineHits[loc.start.line] ?? 0, count);
+      }
+      const lineCounts = Object.values(lineHits);
+      const covered = lineCounts.filter((c) => c > 0).length;
+      const total = lineCounts.length;
+      const prev = fileCov.nodeShellLines;
+      fileCov.nodeShellLines = {
+        covered: (prev?.covered ?? 0) + covered,
+        total: (prev?.total ?? 0) + total,
+        pct: 0,
+      };
+      const prevStmt = fileCov.nodeShellStatements;
+      fileCov.nodeShellStatements = {
+        covered: (prevStmt?.covered ?? 0) + rawStats.jsStatements!.covered,
+        total: (prevStmt?.total ?? 0) + rawStats.jsStatements!.total,
+        pct: 0,
+      };
+      const prevBr = fileCov.nodeShellBranches;
+      fileCov.nodeShellBranches = {
+        covered: (prevBr?.covered ?? 0) + rawStats.jsBranches!.covered,
+        total: (prevBr?.total ?? 0) + rawStats.jsBranches!.total,
+        pct: 0,
+      };
+      const uncoveredLineSet = new Set<number>();
+      for (const [id, loc] of Object.entries(d.statementMap)) {
+        if (d.s[id] === 0) uncoveredLineSet.add(loc.start.line);
+      }
+      const uncoveredLines = [...uncoveredLineSet].sort((a, b) => a - b);
+
+      nodeShellFiles[key] = {
+        path: key,
+        statements: rawStats.jsStatements!,
+        branches: rawStats.jsBranches!,
+        lines: { covered, total, pct: covered === 0 ? 0 : (covered / total) * 100 },
+        uncoveredLines,
+      };
+      if (!fileCov.nodeShStepIstanbul) fileCov.nodeShStepIstanbul = {};
+      fileCov.nodeShStepIstanbul[stepId] = d;
+    }
+    // Recompute nodeShellLines/nodeShellStatements/nodeShellBranches pct now that all steps are accumulated
+    for (const fileCov of Object.values(files)) {
+      if (fileCov.nodeShellLines && fileCov.nodeShellLines.total > 0) {
+        fileCov.nodeShellLines.pct = (fileCov.nodeShellLines.covered / fileCov.nodeShellLines.total) * 100;
+      }
+      if (fileCov.nodeShellStatements && fileCov.nodeShellStatements.total > 0) {
+        fileCov.nodeShellStatements.pct = (fileCov.nodeShellStatements.covered / fileCov.nodeShellStatements.total) * 100;
+      }
+      if (fileCov.nodeShellBranches && fileCov.nodeShellBranches.total > 0) {
+        fileCov.nodeShellBranches.pct = (fileCov.nodeShellBranches.covered / fileCov.nodeShellBranches.total) * 100;
+      }
+    }
+
+    return {
+      files,
+      jsFiles,
+      pythonShellFiles,
+      shShellFiles,
+      bashShellFiles,
+      pwshShellFiles,
+      nodeShellFiles,
+      total: aggregateTotals(Object.values(files), jsFiles, pythonShellFiles, shShellFiles, bashShellFiles, pwshShellFiles, nodeShellFiles),
+    };
   }
 
   private _computeInputStat(path: string): CoverageStat {
@@ -307,11 +632,71 @@ export class CoverageCollector {
         path,
         counts: { ...counts },
       })),
+      jsCoverageEntries: [...this._jsCoverageEntries],
+      shShellCoverageEntries: Array.from(this._shShellCoverageData.entries()).map(([key, lineHits]) => ({
+        key,
+        lineHits: { ...lineHits },
+      })),
+      bashShellCoverageEntries: Array.from(this._bashShellCoverageData.entries()).map(([key, lineHits]) => ({
+        key,
+        lineHits: { ...lineHits },
+      })),
+      pwshShellCoverageEntries: Array.from(this._pwshShellCoverageData.entries()).map(([key, lineHits]) => ({
+        key,
+        lineHits: { ...lineHits },
+      })),
+      pythonShellCoverageEntries: Array.from(this._pythonShellCoverageData.entries()).map(([key, { pythonCoverageData, lineHits }]) => ({
+        key,
+        pythonCoverageData: { ...pythonCoverageData, executedLines: [...pythonCoverageData.executedLines], missingLines: [...pythonCoverageData.missingLines], executedBranches: [...pythonCoverageData.executedBranches], missingBranches: [...pythonCoverageData.missingBranches] },
+        lineHits: { ...lineHits },
+      })),
+      nodeShellCoverageEntries: [...this._nodeShellCoverageEntries],
     };
   }
 
   /** Merge in coverage from another collector. */
   merge(other: CoverageCollector): void {
+    this._jsCoverageEntries.push(...other._jsCoverageEntries);
+    for (const [key, { pythonCoverageData, lineHits: otherHits }] of other._pythonShellCoverageData) {
+      const hits = this._pythonShellCoverageData.get(key)?.lineHits ?? {};
+      for (const [lineStr, count] of Object.entries(otherHits)) {
+        const line = Number(lineStr);
+        hits[line] = (hits[line] ?? 0) + count;
+      }
+      this._pythonShellCoverageData.set(key, { pythonCoverageData, lineHits: hits });
+    }
+    for (const [key, otherHits] of other._shShellCoverageData) {
+      const existing = this._shShellCoverageData.get(key) ?? {};
+      for (const [lineStr, count] of Object.entries(otherHits)) {
+        const line = Number(lineStr);
+        existing[line] = (existing[line] ?? 0) + count;
+      }
+      this._shShellCoverageData.set(key, existing);
+    }
+    for (const [key, otherHits] of other._bashShellCoverageData) {
+      const existing = this._bashShellCoverageData.get(key) ?? {};
+      for (const [lineStr, count] of Object.entries(otherHits)) {
+        const line = Number(lineStr);
+        existing[line] = (existing[line] ?? 0) + count;
+      }
+      this._bashShellCoverageData.set(key, existing);
+    }
+    for (const [key, otherHits] of other._pwshShellCoverageData) {
+      const existing = this._pwshShellCoverageData.get(key) ?? {};
+      for (const [lineStr, count] of Object.entries(otherHits)) {
+        const line = Number(lineStr);
+        existing[line] = (existing[line] ?? 0) + count;
+      }
+      this._pwshShellCoverageData.set(key, existing);
+    }
+    for (const { key, entries } of other._nodeShellCoverageEntries) {
+      const existing = this._nodeShellCoverageEntries.find((e) => e.key === key);
+      if (existing) {
+        existing.entries.push(...entries);
+      } else {
+        this._nodeShellCoverageEntries.push({ key, entries: [...entries] });
+      }
+    }
     this._map.merge(other._map as unknown as Parameters<CoverageMap['merge']>[0]);
 
     for (const [path, otherRecord] of other._outputData) {
@@ -366,6 +751,12 @@ export class CoverageCollector {
     this._inputData = new Map();
     this._outputData = new Map();
     this._stepReachedData = new Map();
+    this._jsCoverageEntries = [];
+    this._shShellCoverageData = new Map();
+    this._bashShellCoverageData = new Map();
+    this._pwshShellCoverageData = new Map();
+    this._pythonShellCoverageData = new Map();
+    this._nodeShellCoverageEntries = [];
   }
 
   /** Write the raw JSON coverage fragment to a file. */
@@ -380,6 +771,12 @@ export class CoverageCollector {
     inputExercises: InputExerciseEntry[],
     outputExercises: OutputExerciseEntry[] = [],
     stepReachedExercises: StepReachedEntry[] = [],
+    jsCoverageEntries: JsCoverageEntry[] = [],
+    shShellCoverageEntries: ShShellCoverageEntry[] = [],
+    bashShellCoverageEntries: ShShellCoverageEntry[] = [],
+    pwshShellCoverageEntries: ShShellCoverageEntry[] = [],
+    pythonShellCoverageEntries: PythonShellCoverageEntry[] = [],
+    nodeShellCoverageEntries: NodeShellCoverageEntry[] = [],
   ): CoverageCollector {
     const c = new CoverageCollector();
     (c._map as unknown as { merge(d: unknown): void }).merge(
@@ -399,15 +796,66 @@ export class CoverageCollector {
     for (const entry of stepReachedExercises) {
       c._stepReachedData.set(entry.path, { ...entry.counts });
     }
+    c._jsCoverageEntries.push(...jsCoverageEntries);
+    for (const entry of shShellCoverageEntries) {
+      const existing = c._shShellCoverageData.get(entry.key) ?? {};
+      for (const [lineStr, count] of Object.entries(entry.lineHits)) {
+        const line = Number(lineStr);
+        existing[line] = (existing[line] ?? 0) + count;
+      }
+      c._shShellCoverageData.set(entry.key, existing);
+    }
+    for (const entry of bashShellCoverageEntries) {
+      const existing = c._bashShellCoverageData.get(entry.key) ?? {};
+      for (const [lineStr, count] of Object.entries(entry.lineHits)) {
+        const line = Number(lineStr);
+        existing[line] = (existing[line] ?? 0) + count;
+      }
+      c._bashShellCoverageData.set(entry.key, existing);
+    }
+    for (const entry of pwshShellCoverageEntries) {
+      const existing = c._pwshShellCoverageData.get(entry.key) ?? {};
+      for (const [lineStr, count] of Object.entries(entry.lineHits)) {
+        const line = Number(lineStr);
+        existing[line] = (existing[line] ?? 0) + count;
+      }
+      c._pwshShellCoverageData.set(entry.key, existing);
+    }
+    for (const entry of pythonShellCoverageEntries) {
+      const existing = c._pythonShellCoverageData.get(entry.key);
+      const hits = existing?.lineHits ?? {};
+      for (const [lineStr, count] of Object.entries(entry.lineHits)) {
+        const line = Number(lineStr);
+        hits[line] = (hits[line] ?? 0) + count;
+      }
+      c._pythonShellCoverageData.set(entry.key, { pythonCoverageData: entry.pythonCoverageData, lineHits: hits });
+    }
+    for (const { key, entries } of nodeShellCoverageEntries) {
+      const existing = c._nodeShellCoverageEntries.find((e) => e.key === key);
+      if (existing) {
+        existing.entries.push(...entries);
+      } else {
+        c._nodeShellCoverageEntries.push({ key, entries: [...entries] });
+      }
+    }
     return c;
   }
 }
 
-export function aggregateTotals(files: FileCoverage[]): Record<CoverageMetric, CoverageStat> {
+export function aggregateTotals(
+  files: FileCoverage[],
+  jsFiles: Record<string, JsFileCoverage> = {},
+  pythonShellFiles: Record<string, PythonShellFileCoverage> = {},
+  shShellFiles: Record<string, ShShellFileCoverage> = {},
+  bashShellFiles: Record<string, BashShellFileCoverage> = {},
+  pwshShellFiles: Record<string, PwshShellFileCoverage> = {},
+  nodeShellFiles: Record<string, NodeShellFileCoverage> = {},
+): Record<CoverageMetric, CoverageStat> {
   let stepCovered = 0, stepTotal = 0;
   let branchCovered = 0, branchTotal = 0;
   let inputCovered = 0, inputTotal = 0;
   let outCovered = 0, outTotal = 0;
+  let nodeShLnCovered = 0, nodeShLnTotal = 0;
 
   for (const f of files) {
     stepCovered += f.steps.covered;
@@ -418,12 +866,87 @@ export function aggregateTotals(files: FileCoverage[]): Record<CoverageMetric, C
     inputTotal += f.inputs.total;
     outCovered += f.outputs.covered;
     outTotal += f.outputs.total;
+    if (f.nodeShellLines) {
+      nodeShLnCovered += f.nodeShellLines.covered;
+      nodeShLnTotal += f.nodeShellLines.total;
+    }
   }
 
+  let shLnCovered = 0, shLnTotal = 0;
+  for (const f of Object.values(shShellFiles)) {
+    shLnCovered += f.lines.covered;
+    shLnTotal += f.lines.total;
+  }
+
+  let bashLnCovered = 0, bashLnTotal = 0;
+  for (const f of Object.values(bashShellFiles)) {
+    bashLnCovered += f.lines.covered;
+    bashLnTotal += f.lines.total;
+  }
+
+  let pwshLnCovered = 0, pwshLnTotal = 0;
+  for (const f of Object.values(pwshShellFiles)) {
+    pwshLnCovered += f.lines.covered;
+    pwshLnTotal += f.lines.total;
+  }
+
+  let nodeShStmtCovered = 0, nodeShStmtTotal = 0;
+  let nodeShBrCovered = 0, nodeShBrTotal = 0;
+  for (const f of Object.values(nodeShellFiles)) {
+    nodeShStmtCovered += f.statements.covered;
+    nodeShStmtTotal += f.statements.total;
+    nodeShBrCovered += f.branches.covered;
+    nodeShBrTotal += f.branches.total;
+  }
+
+  let jsStmtCovered = 0, jsStmtTotal = 0;
+  let jsBrCovered = 0, jsBrTotal = 0;
+  let jsFnCovered = 0, jsFnTotal = 0;
+  let jsLnCovered = 0, jsLnTotal = 0;
+
+  for (const f of Object.values(jsFiles)) {
+    jsStmtCovered += f.statements.covered;
+    jsStmtTotal += f.statements.total;
+    jsBrCovered += f.branches.covered;
+    jsBrTotal += f.branches.total;
+    jsFnCovered += f.functions.covered;
+    jsFnTotal += f.functions.total;
+    jsLnCovered += f.lines.covered;
+    jsLnTotal += f.lines.total;
+  }
+
+  let pyStmtCovered = 0, pyStmtTotal = 0;
+  let pyBrCovered = 0, pyBrTotal = 0;
+  let pyLnCovered = 0, pyLnTotal = 0;
+
+  for (const f of Object.values(pythonShellFiles)) {
+    pyStmtCovered += f.statements.covered;
+    pyStmtTotal += f.statements.total;
+    pyBrCovered += f.branches.covered;
+    pyBrTotal += f.branches.total;
+    pyLnCovered += f.lines.covered;
+    pyLnTotal += f.lines.total;
+  }
+
+  const pct = (c: number, t: number) => t === 0 ? 0 : (c / t) * 100;
+
   return {
-    steps: { covered: stepCovered, total: stepTotal, pct: stepTotal === 0 ? 0 : (stepCovered / stepTotal) * 100 },
-    ifBranches: { covered: branchCovered, total: branchTotal, pct: branchTotal === 0 ? 0 : (branchCovered / branchTotal) * 100 },
-    inputs: { covered: inputCovered, total: inputTotal, pct: inputTotal === 0 ? 0 : (inputCovered / inputTotal) * 100 },
-    outputs: { covered: outCovered, total: outTotal, pct: outTotal === 0 ? 0 : (outCovered / outTotal) * 100 },
+    steps: { covered: stepCovered, total: stepTotal, pct: pct(stepCovered, stepTotal) },
+    ifBranches: { covered: branchCovered, total: branchTotal, pct: pct(branchCovered, branchTotal) },
+    inputs: { covered: inputCovered, total: inputTotal, pct: pct(inputCovered, inputTotal) },
+    outputs: { covered: outCovered, total: outTotal, pct: pct(outCovered, outTotal) },
+    jsStatements: { covered: jsStmtCovered, total: jsStmtTotal, pct: pct(jsStmtCovered, jsStmtTotal) },
+    jsBranches: { covered: jsBrCovered, total: jsBrTotal, pct: pct(jsBrCovered, jsBrTotal) },
+    jsFunctions: { covered: jsFnCovered, total: jsFnTotal, pct: pct(jsFnCovered, jsFnTotal) },
+    jsLines: { covered: jsLnCovered, total: jsLnTotal, pct: pct(jsLnCovered, jsLnTotal) },
+    shShellLines: { covered: shLnCovered, total: shLnTotal, pct: pct(shLnCovered, shLnTotal) },
+    bashShellLines: { covered: bashLnCovered, total: bashLnTotal, pct: pct(bashLnCovered, bashLnTotal) },
+    pwshShellLines: { covered: pwshLnCovered, total: pwshLnTotal, pct: pct(pwshLnCovered, pwshLnTotal) },
+    nodeShellLines: { covered: nodeShLnCovered, total: nodeShLnTotal, pct: pct(nodeShLnCovered, nodeShLnTotal) },
+    nodeShellStatements: { covered: nodeShStmtCovered, total: nodeShStmtTotal, pct: pct(nodeShStmtCovered, nodeShStmtTotal) },
+    nodeShellBranches: { covered: nodeShBrCovered, total: nodeShBrTotal, pct: pct(nodeShBrCovered, nodeShBrTotal) },
+    pythonShellStatements: { covered: pyStmtCovered, total: pyStmtTotal, pct: pct(pyStmtCovered, pyStmtTotal) },
+    pythonShellBranches: { covered: pyBrCovered, total: pyBrTotal, pct: pct(pyBrCovered, pyBrTotal) },
+    pythonShellLines: { covered: pyLnCovered, total: pyLnTotal, pct: pct(pyLnCovered, pyLnTotal) },
   };
 }

@@ -1,0 +1,8 @@
+name: With Node Run Flow
+description: Fixture for shell:node with flow scalar run
+runs:
+  using: composite
+  steps:
+    - id: step1
+      run: "console.log('hi')"
+      shell: node

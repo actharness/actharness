@@ -1,0 +1,10 @@
+name: Axios Action
+description: Integration fixture for mockNetwork — uses axios (npm package over http/https).
+
+outputs:
+  value:
+    description: value from response JSON
+
+runs:
+  using: node22
+  main: dist/axios.js

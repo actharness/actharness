@@ -30,6 +30,7 @@ export interface RunResultAssertionHandle extends AssertionHandle<RunResult> {
 export interface StepResultAssertionHandle extends AssertionHandle<StepResult> {
   toHaveSucceeded(): StepResultAssertionHandle;
   toHaveFailed(): StepResultAssertionHandle;
+  toHaveBeenSkipped(): StepResultAssertionHandle;
   toHaveOutput(name: string, value: string): StepResultAssertionHandle;
   toHaveAnnotation(opts?: { level?: 'error' | 'warning' | 'notice' | 'debug'; message?: string | RegExp }): StepResultAssertionHandle;
   toHaveStdoutContaining(substring: string): StepResultAssertionHandle;
@@ -183,6 +184,19 @@ function buildStepResultHandle(
           negated
             ? `Expected step '${step.id}' to NOT have failed, but conclusion was 'failure'.`
             : `Expected step '${step.id}' to have failed, but conclusion was '${step.conclusion}'.`,
+        );
+      }
+      return handle;
+    },
+
+    toHaveBeenSkipped() {
+      if (step === undefined) throw new Error('Expected step to exist, but step was not found');
+      const ok = step.conclusion === 'skipped';
+      if (negated ? ok : !ok) {
+        fail(
+          negated
+            ? `Expected step '${step.id}' to NOT have been skipped, but conclusion was 'skipped'.`
+            : `Expected step '${step.id}' to have been skipped, but conclusion was '${step.conclusion}'.`,
         );
       }
       return handle;

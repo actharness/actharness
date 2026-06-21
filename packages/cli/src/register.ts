@@ -3,7 +3,7 @@
 // Wraps describe/it/test/beforeEach/afterEach to manage the mock scope stack.
 
 import { actharness } from '@actharness/core';
-import { globalMock, globalResetMocks, fileRootRegistry } from '@actharness/core';
+import { globalMock, globalMockOnce, globalResetMocks, fileRootRegistry } from '@actharness/core';
 import { expect } from '@actharness/matchers';
 import {
   describe, it, test,
@@ -12,8 +12,10 @@ import {
   beforeAll, afterAll,
 } from './lifecycle.js';
 
-// Side-effectful: registers the composite executor.
+// Side-effectful: registers the composite and node executors.
 import '@actharness/composite';
+import '@actharness/node';
+import { mockGitHubApi, mockGitHubApiOnce, mockNetwork, mockNetworkOnce, resetNetworkMocks } from '@actharness/node';
 
 // ── Inject lifecycle functions ────────────────────────────────────────────────
 
@@ -28,8 +30,14 @@ Object.assign(globalThis, {
 
 const actharnessWithMocks = Object.assign(actharness, {
   mock: globalMock,
-  resetMocks: globalResetMocks,
+  mockOnce: globalMockOnce,
+  resetMocks: () => { globalResetMocks(); resetNetworkMocks(); },
+  mockGitHubApi,
+  mockGitHubApiOnce,
+  mockNetwork,
+  mockNetworkOnce,
 });
+
 
 (globalThis as Record<string, unknown>)['actharness'] = actharnessWithMocks;
 (globalThis as Record<string, unknown>)['expect'] = expect;

@@ -22,6 +22,14 @@ function nodeRange(node: Node | ParsedNode): NodeRange {
   return { start: r[0], end: r[1] };
 }
 
+export function scalarRange(map: YAMLMap, key: string): NodeRange | undefined {
+  const raw = map.get(key, true) as unknown;
+  if (raw && (raw as { range?: [number, number, number] }).range) {
+    return nodeRange(raw as Node);
+  }
+  return undefined;
+}
+
 // ── Scalar helpers ────────────────────────────────────────────────────────────
 
 function str(map: YAMLMap, key: string): string | undefined {
@@ -36,12 +44,11 @@ function bool(map: YAMLMap, key: string): boolean | undefined {
   return Boolean(v);
 }
 
-function strRecord(map: YAMLMap, key: string): Record<string, string> | undefined {
+export function strRecord(map: YAMLMap, key: string): Record<string, string> | undefined {
   const sub = map.get(key, true) as unknown as YAMLMap | null;
   if (!sub || !(sub instanceof Object) || !('items' in sub)) return undefined;
   const result: Record<string, string> = {};
   for (const pair of sub.items as { key: Scalar; value: Scalar }[]) {
-    /* v8 ignore next -- yaml always wraps values in node objects; bare null nodes unreachable */
     if (pair.key && pair.value !== undefined && pair.value !== null) {
       result[String(pair.key.value)] = String(pair.value.value ?? '');
     }
@@ -51,7 +58,7 @@ function strRecord(map: YAMLMap, key: string): Record<string, string> | undefine
 
 // ── Inputs ────────────────────────────────────────────────────────────────────
 
-function parseInputs(
+export function parseInputs(
   inputsNode: YAMLMap | null | undefined,
 ): Record<string, ParsedInput> | undefined {
   if (!inputsNode) return undefined;
@@ -74,7 +81,6 @@ function parseInputs(
     if (dep !== undefined) inp.deprecationMessage = dep;
     const keyNode = pair.key as unknown as { range?: [number, number, number] };
     const valNode = pair.value as unknown as { range?: [number, number, number] };
-    /* v8 ignore next -- range is always present when parsing from a yaml string */
     if (keyNode.range && valNode.range) {
       inp._range = { start: keyNode.range[0], end: valNode.range[1] };
     }
@@ -177,11 +183,6 @@ function parseRuns(runsNode: YAMLMap, filePath: string): ParsedActionRuns {
 
   if (using === 'composite') {
     runs.steps = parseSteps(runsNode);
-  } else if (using.startsWith('node')) {
-    throw new ConfigError(
-      `'runs.using: ${using}' (Node.js executor) is planned for actharness v0.2 — ` +
-      `only 'composite' is supported in v0.1`,
-    );
   } else if (using === 'docker') {
     throw new ConfigError(
       `'runs.using: docker' (Docker executor) is planned for actharness v0.3 — ` +
@@ -190,15 +191,30 @@ function parseRuns(runsNode: YAMLMap, filePath: string): ParsedActionRuns {
   }
 
   const pre = str(runsNode, 'pre');
-  if (pre !== undefined) runs.pre = pre;
+  if (pre !== undefined) {
+    runs.pre = pre;
+    runs._preRange = scalarRange(runsNode, 'pre');
+  }
   const preIf = str(runsNode, 'pre-if');
-  if (preIf !== undefined) runs['pre-if'] = preIf;
+  if (preIf !== undefined) {
+    runs['pre-if'] = preIf;
+    runs._preIfRange = scalarRange(runsNode, 'pre-if');
+  }
   const main = str(runsNode, 'main');
-  if (main !== undefined) runs.main = main;
+  if (main !== undefined) {
+    runs.main = main;
+    runs._mainRange = scalarRange(runsNode, 'main');
+  }
   const post = str(runsNode, 'post');
-  if (post !== undefined) runs.post = post;
+  if (post !== undefined) {
+    runs.post = post;
+    runs._postRange = scalarRange(runsNode, 'post');
+  }
   const postIf = str(runsNode, 'post-if');
-  if (postIf !== undefined) runs['post-if'] = postIf;
+  if (postIf !== undefined) {
+    runs['post-if'] = postIf;
+    runs._postIfRange = scalarRange(runsNode, 'post-if');
+  }
   const image = str(runsNode, 'image');
   if (image !== undefined) runs.image = image;
 

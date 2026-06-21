@@ -1,0 +1,46 @@
+{
+  "name": "@actharness/node",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "actharness node action executor — JsSandbox, sandbox bootstrap, network mock layer",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/actharness/actharness",
+    "directory": "packages/node"
+  },
+  "type": "module",
+  "sideEffects": true,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "src/sandbox-bootstrap.mjs"
+  ],
+  "scripts": {
+    "build": "tsup && cp src/sandbox-bootstrap.mjs dist/",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit",
+    "test:setup": "node test/setup-fixtures.mjs",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@actharness/core": "workspace:*",
+    "@actharness/network-mock": "workspace:*",
+    "@actharness/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.21",
+    "@vitest/coverage-v8": "^4.1.8",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

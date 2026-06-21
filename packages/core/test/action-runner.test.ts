@@ -145,7 +145,7 @@ describe('Action.run()', () => {
     const stepResult = {
       id: 's1', name: 'S1', phase: 'main' as const, ran: true,
       outcome: 'success' as const, conclusion: 'success' as const,
-      outputs: {}, stdout: '', stderr: '',
+      outputs: {}, annotations: [], stdout: '', stderr: '',
     };
     const { action } = makeTestAction({ steps: [stepResult] });
     const result = await action.run();
@@ -178,14 +178,38 @@ describe('Action.run()', () => {
     await expect(action.run()).resolves.toBeDefined();
   });
 
-  it('uses custom workspace dir when provided', async () => {
+  it('uses custom tempDir when provided', async () => {
     const wsDir = mkdtempSync(join(tmpdir(), 'actharness-ws-base-'));
     tmpDirs.push(wsDir);
     const { using } = makeTestAction();
     const yaml = `name: Test Action\nruns:\n  using: ${using}\n  steps: []\n`;
     const dir = mktmp(yaml);
-    const action = actharness(dir, { workspace: wsDir });
+    const action = actharness(dir, { tempDir: wsDir });
     await expect(action.run()).resolves.toBeDefined();
+  });
+
+  // options.workspace's actual seeding behavior is checkout-gated (copied in only once a
+  // `uses: actions/checkout@*`-like step runs) — that requires real composite steps, which
+  // this file's fake-executor harness (no step loop) can't exercise. Those behavioral tests
+  // live in packages/core/test/step-runner.test.ts ("checkout-gated workspace seeding") and
+  // the end-to-end fixture at fixtures/checkout-workspace/. This file only needs to confirm
+  // resolution: relative `workspace` paths resolve against the caller's directory.
+  it('resolves a relative options.workspace path against the caller dir (does not throw)', async () => {
+    // Resolution happens eagerly inside actharness(), before run() — and this fixture has
+    // no checkout step, so the seed path is never actually read; this only confirms the
+    // relative-path resolution itself doesn't throw.
+    const { using } = makeTestAction();
+    const dir = mktmp(`name: Test Action\nruns:\n  using: ${using}\n  steps: []\n`);
+    expect(() => actharness(dir, { workspace: './fixtures/workspace-seed' })).not.toThrow();
+  });
+
+  it('leaves an absolute options.workspace path unresolved (does not throw)', async () => {
+    // Covers the branch where options.workspace is set but is NOT a relative './'/'../'
+    // path — actharness() should pass it through as-is rather than re-resolving it.
+    const { using } = makeTestAction();
+    const dir = mktmp(`name: Test Action\nruns:\n  using: ${using}\n  steps: []\n`);
+    const absoluteSeedPath = join(tmpdir(), 'actharness-seed-absolute');
+    expect(() => actharness(dir, { workspace: absoluteSeedPath })).not.toThrow();
   });
 
   it('accepts input overrides', async () => {

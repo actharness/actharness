@@ -1,0 +1,7 @@
+name: With Node Inline Run
+runs:
+  using: composite
+  steps:
+    - id: step1
+      shell: node
+      run: console.log("hello");

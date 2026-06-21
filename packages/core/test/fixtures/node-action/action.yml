@@ -2,5 +2,5 @@ name: Node Action
 description: A Node.js action — should throw ConfigError in v0.1
 
 runs:
-  using: node20
+  using: node22
   main: dist/index.js

@@ -2,7 +2,7 @@
 // Executors register themselves (composite, node, docker) via registerExecutor.
 // Dispatch happens in action-runner via dispatchAction.
 
-import type { ParsedAction } from '@actharness/types';
+import type { ParsedAction, ActharnessOptions, PythonCoverageData, NodeCoverageData } from '@actharness/types';
 import type { MockRegistry } from './mock-resolver.js';
 import type { ContextStore } from './context.js';
 import type { ProtocolFiles } from './protocol.js';
@@ -15,6 +15,9 @@ export interface ShellSandboxOptions {
   env: Record<string, string>;
   cwd: string;
   timeout?: number | undefined;
+  coverage?: boolean | undefined;
+  runId?: string | undefined;
+  pwshIsolation?: 'runspace' | 'process' | undefined;
 }
 
 export interface ShellSandboxResult {
@@ -22,10 +25,12 @@ export interface ShellSandboxResult {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  shellCoverage?: { lineHits: Record<number, number> } | { pythonCoverageData: PythonCoverageData } | { nodeCoverageData: NodeCoverageData[] } | undefined;
 }
 
 export interface SandboxFactory {
   shell(opts: ShellSandboxOptions): Promise<ShellSandboxResult>;
+  endRun?(runId: string): void;
 }
 
 // ── ExecutionCall ─────────────────────────────────────────────────────────────
@@ -44,6 +49,8 @@ export interface ExecutionCall {
   mocks: MockRegistry;
   /** Shell/container sandbox provider. */
   sandbox: SandboxFactory;
+  /** The ActharnessOptions passed to actharness()/run(), threaded through dispatch. */
+  options: ActharnessOptions;
   /** Recursion path for cycle detection (list of action dirs). */
   cycleGuard: string[];
   /** Current recursion depth. */
@@ -66,6 +73,10 @@ export interface ExecutionResult {
   stdout?: string | undefined;
   /** Concatenated stderr from all steps. */
   stderr?: string | undefined;
+  /** v0.2: raw V8 script coverage from a node action's JsSandbox worker. */
+  jsCoverage?: unknown;
+  /** Shell coverage accumulated from composite run: steps. */
+  shellCoverage?: Array<{ path: string; lineHits: Record<number, number> } | { path: string; pythonCoverageData: PythonCoverageData } | { path: string; nodeCoverageData: NodeCoverageData[] }> | undefined;
 }
 
 // ── ActionExecutor interface ──────────────────────────────────────────────────

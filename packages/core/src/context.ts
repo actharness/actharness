@@ -84,7 +84,7 @@ export function createContextStore(opts: {
     matrix: opts.matrix,
     needs: opts.needs,
     jobStatus: opts.jobStatus,
-    masks: new Set(),
+    masks: new Set(Object.values(opts.secrets).filter(Boolean)),
     annotations: [],
   };
 }
@@ -200,6 +200,7 @@ export function buildEnvVars(
   const env: Record<string, string> = {
     CI: 'true',
     GITHUB_ACTIONS: 'true',
+    ...(process.env['PATH'] ? { PATH: process.env['PATH'] } : {}),
 
     GITHUB_WORKFLOW: github.workflow,
     GITHUB_WORKFLOW_REF: github.workflow_ref,

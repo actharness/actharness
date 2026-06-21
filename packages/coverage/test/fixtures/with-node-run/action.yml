@@ -1,0 +1,8 @@
+name: With Node Run
+runs:
+  using: composite
+  steps:
+    - id: step1
+      run: |
+        console.log('hello');
+      shell: node

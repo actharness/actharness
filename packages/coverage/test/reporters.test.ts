@@ -37,7 +37,16 @@ beforeEach(() => {
 
 function makeEmptyReport(): CoverageReport {
   const stat = { covered: 0, total: 0, pct: 0 };
-  return { files: {}, total: { steps: stat, ifBranches: stat, inputs: stat, outputs: stat } };
+  return {
+  files: {},
+  jsFiles: {},
+  total: { steps: stat, ifBranches: stat, inputs: stat, outputs: stat, jsStatements: stat, jsBranches: stat, jsFunctions: stat, jsLines: stat, shShellLines: stat, pwshShellLines: stat, pythonShellStatements: stat, pythonShellBranches: stat, pythonShellLines: stat, nodeShellLines: stat, nodeShellStatements: stat, nodeShellBranches: stat, bashShellLines: stat },
+  pythonShellFiles: {},
+  shShellFiles: {},
+  bashShellFiles: {},
+  pwshShellFiles: {},
+  nodeShellFiles: {}
+};
 }
 
 // ── ACTHARNESS_REPORTER_NAMES ────────────────────────────────────────────────────

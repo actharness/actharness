@@ -1,0 +1,9 @@
+name: With Sh Comment Run
+runs:
+  using: composite
+  steps:
+    - id: step1
+      shell: sh
+      run: |
+        # setup
+        echo "line1"

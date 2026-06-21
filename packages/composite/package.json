@@ -2,7 +2,7 @@
   "name": "@actharness/composite",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "actharness composite action executor — ShellSandbox + composite step runner",
+  "description": "actharness composite action executor — composite step runner (ShellSandbox lives in @actharness/shell)",
   "repository": {
     "type": "git",
     "url": "https://github.com/actharness/actharness",
@@ -35,6 +35,7 @@
   },
   "dependencies": {
     "@actharness/core": "workspace:*",
+    "@actharness/shell": "workspace:*",
     "@actharness/types": "workspace:*"
   },
   "devDependencies": {

@@ -75,6 +75,15 @@ describe('release action', () => {
 });
 ```
 
+Use `mockOnce` to override exactly one invocation, then fall back to the persistent mock (or to unmocked behaviour if none is registered):
+
+```ts
+actharness.mock('actions/checkout@v4', { outputs: { ref: 'main' } });
+actharness.mockOnce('actions/checkout@v4', { outputs: { ref: 'feature' } }); // first call only
+```
+
+Network calls inside JS and shell steps are intercepted via `mockNetwork` / `mockGitHubApi` (and their `*Once` siblings). `actharness.resetMocks()` clears all mocks and once-queues — call it in `afterEach`.
+
 ## Matchers
 
 ### Result matchers
@@ -137,6 +146,7 @@ describe('context', () => {
 ```bash
 npx actharness test --coverage
 npx actharness test --coverage --threshold steps=100 --threshold ifBranches=80
+npx actharness test --coverage --threshold bashShellLines=80 --threshold jsLines=90
 ```
 
 Emits Istanbul-compatible reports. Supported reporters: `text`, `text-summary`, `lcov`, `lcovonly`, `html`, `html-spa`, `json`, `json-summary`, `cobertura`, `clover`, `teamcity`, `none`. Coverage tracks which steps ran, which were skipped, and how each `if:` branch resolved.
@@ -159,7 +169,19 @@ export default {
   coverage: true,
   reporters: ['lcov', 'html', 'text'],
   coverageDir: 'coverage',
-  thresholds: { steps: 100, ifBranches: 80 },
+  thresholds: {
+    // action
+    steps: 100,
+    ifBranches: 80,
+    // shell
+    shShellLines: 80,
+    bashShellLines: 80,
+    pwshShellLines: 80,
+    pythonShellLines: 80,
+    nodeShellLines: 80,
+    // node .js files
+    jsLines: 90,
+  },
   patterns: ['**/*.test.ts'],
 };
 ```

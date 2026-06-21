@@ -1,0 +1,8 @@
+name: Node With If
+runs:
+  using: node22
+  pre: pre.js
+  pre-if: always()
+  main: index.js
+  post: post.js
+  post-if: failure()

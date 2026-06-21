@@ -1,0 +1,13 @@
+name: 'Bundled Node Action'
+description: 'actharness/node fixture — ncc-bundled single-file dist, no node_modules.'
+inputs:
+  name:
+    description: 'Name to greet'
+    required: false
+    default: 'World'
+outputs:
+  greeting:
+    description: 'The greeting string'
+runs:
+  using: 'node22'
+  main: 'dist/index.js'

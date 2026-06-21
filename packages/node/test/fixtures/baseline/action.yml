@@ -1,0 +1,13 @@
+name: 'Baseline Node Action'
+description: 'actharness/node fixture — CJS, @actions/core only. Tests basic env/output/exit-trap.'
+inputs:
+  greeting:
+    description: 'Greeting word'
+    required: false
+    default: 'Hello'
+outputs:
+  message:
+    description: 'Composed greeting'
+runs:
+  using: 'node22'
+  main: 'index.js'

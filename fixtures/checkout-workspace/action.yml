@@ -1,0 +1,51 @@
+name: Checkout Workspace Fixture
+description: Integration fixture for options.workspace — checkout-gated seeding, npm ci, and JS/shell file access.
+
+outputs:
+  before-checkout-saw-file:
+    description: whether data.txt was visible before the checkout step ran
+    value: ${{ steps.before.outputs.saw-file }}
+  npm-ci-exit-code:
+    description: exit code of npm ci, run after checkout
+    value: ${{ steps.npm-ci.outputs.exit-code }}
+  shell-read-value:
+    description: contents of data.txt read by a shell step after checkout
+    value: ${{ steps.after-shell.outputs.value }}
+  node-read-value:
+    description: contents of data.txt read by a node action (via GITHUB_WORKSPACE) after checkout
+    value: ${{ steps.after-node.outputs.value }}
+  node-read-value-relative:
+    description: contents of data.txt read by a node action via a bare relative path after checkout
+    value: ${{ steps.after-node-relative.outputs.value }}
+
+runs:
+  using: composite
+  steps:
+    - id: before
+      shell: bash
+      run: |
+        if [ -f "data.txt" ]; then
+          echo "saw-file=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "saw-file=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - id: checkout
+      uses: actions/checkout@v4
+
+    - id: npm-ci
+      shell: bash
+      run: |
+        npm ci
+        echo "exit-code=$?" >> "$GITHUB_OUTPUT"
+
+    - id: after-shell
+      shell: bash
+      run: |
+        echo "value=$(cat data.txt)" >> "$GITHUB_OUTPUT"
+
+    - id: after-node
+      uses: ./node-reader
+
+    - id: after-node-relative
+      uses: ./node-reader-relative

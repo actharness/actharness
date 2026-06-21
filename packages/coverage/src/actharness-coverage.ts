@@ -20,11 +20,11 @@ export function actharnessCoverage(options?: CoverageOptions): void {
 }
 
 /** Return the current domain CoverageReport. Must be called after actharnessCoverage(). */
-export function getCoverage(): CoverageReport {
+export async function getCoverage(): Promise<CoverageReport> {
   if (!_collector) {
     throw new Error('actharnessCoverage() has not been called');
   }
-  const base = _collector.toCoverageReport();
+  const base = await _collector.toCoverageReport();
   return applyIncludeExclude(base, _options, process.cwd());
 }
 
@@ -60,7 +60,22 @@ export function applyIncludeExclude(
     }
   }
 
-  return { files, total: aggregateTotals(Object.values(files)) };
+  const jsFiles = base.jsFiles;
+  const pythonShellFiles = base.pythonShellFiles;
+  const shShellFiles = base.shShellFiles;
+  const bashShellFiles = base.bashShellFiles;
+  const pwshShellFiles = base.pwshShellFiles;
+  const nodeShellFiles = base.nodeShellFiles;
+  return {
+    files,
+    jsFiles,
+    pythonShellFiles: pythonShellFiles,
+    shShellFiles: shShellFiles,
+    bashShellFiles: bashShellFiles,
+    pwshShellFiles: pwshShellFiles,
+    nodeShellFiles: nodeShellFiles,
+    total: aggregateTotals(Object.values(files), jsFiles, pythonShellFiles, shShellFiles, bashShellFiles, pwshShellFiles, nodeShellFiles),
+  };
 }
 
 function _scanDir(cwd: string): string[] {
@@ -75,6 +90,11 @@ function _scanDir(cwd: string): string[] {
   }
 }
 
+function _isAlwaysTrueExpression(expr: string): boolean {
+  const t = expr.trim();
+  return t === 'always()' || t === '${{ always() }}';
+}
+
 function _buildZeroFileCoverage(filePath: string): FileCoverage | null {
   try {
     const action = parseAction(filePath);
@@ -82,18 +102,21 @@ function _buildZeroFileCoverage(filePath: string): FileCoverage | null {
 
     const allStepIds = steps.map((s, i) => s.id ?? `__step_${i + 1}__`);
     const ifBranchTable: IfBranchRow[] = [];
-    let ifBranchCount = 0;
+    let branchTotal = 0;
 
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i]!;
       if (step.if && step.if !== 'success()') {
-        ifBranchCount++;
-        ifBranchTable.push({
+        const alwaysTrue = _isAlwaysTrueExpression(step.if);
+        branchTotal += alwaysTrue ? 1 : 2;
+        const row: IfBranchRow = {
           step: step.id ?? `__step_${i + 1}__`,
           expression: step.if,
           trueCount: 0,
           falseCount: 0,
-        });
+        };
+        if (alwaysTrue) row.falseBranchImpossible = true;
+        ifBranchTable.push(row);
       }
     }
 
@@ -103,7 +126,6 @@ function _buildZeroFileCoverage(filePath: string): FileCoverage | null {
     }, 0);
 
     const stepsTotal = allStepIds.length;
-    const branchTotal = ifBranchCount * 2;
 
     const stepHits: Record<string, number> = {};
     const stepReached: Record<string, number> = {};

@@ -1,0 +1,120 @@
+name: Sh Shell Demo
+description: "Exercises shell: bash (POSIX) — inputs, outputs, env, GITHUB_ENV, GITHUB_PATH, if:, continue-on-error, working-directory, annotations, and failure path."
+author: actharness
+
+inputs:
+  name:
+    description: Name to greet. Optional — defaults to World.
+    default: "World"
+  should-fail:
+    description: When true, triggers a step failure to test failure() condition.
+    required: true
+
+outputs:
+  greeting:
+    description: Greeting produced from the name input
+    value: ${{ steps.greet.outputs.greeting }}
+  env-value:
+    description: Value read from the seeded env
+    value: ${{ steps.read-env.outputs.env-value }}
+  step-env-value:
+    description: Value produced by the step-level env override
+    value: ${{ steps.override-env.outputs.step-env-value }}
+  restored-env:
+    description: Seed env value as seen by the step after the override
+    value: ${{ steps.restored-env-step.outputs.restored-env }}
+  threaded-env:
+    description: Value written to GITHUB_ENV in one step and read in the next
+    value: ${{ steps.read-github-env.outputs.threaded-env }}
+  cwd-name:
+    description: Basename of the working directory used by the working-directory step
+    value: ${{ steps.check-cwd.outputs.cwd-name }}
+  has-custom-bin:
+    description: Whether /custom/bin was prepended to PATH via GITHUB_PATH
+    value: ${{ steps.check-path.outputs.has-custom-bin }}
+
+runs:
+  using: composite
+  steps:
+    - id: greet
+      shell: bash
+      run: |
+        echo "greeting=Hello, ${{ inputs.name }}!" >> "$GITHUB_OUTPUT"
+
+    - id: read-env
+      shell: bash
+      run: |
+        echo "env-value=${TEST_ENV}" >> "$GITHUB_OUTPUT"
+
+    - id: override-env
+      shell: bash
+      env:
+        TEST_ENV: "https://staging.example.com"
+      run: |
+        echo "step-env-value=${TEST_ENV}" >> "$GITHUB_OUTPUT"
+
+    - id: restored-env-step
+      shell: bash
+      run: |
+        echo "restored-env=${TEST_ENV}" >> "$GITHUB_OUTPUT"
+
+    - id: set-github-env
+      shell: bash
+      run: |
+        echo "THREADED_VALUE=from-set-github-env" >> "$GITHUB_ENV"
+
+    - id: read-github-env
+      shell: bash
+      run: |
+        echo "threaded-env=${THREADED_VALUE}" >> "$GITHUB_OUTPUT"
+
+    - id: setup-subdir
+      shell: bash
+      run: mkdir -p subdir
+
+    - id: check-cwd
+      shell: bash
+      working-directory: ./subdir
+      run: |
+        echo "cwd-name=$(basename "$PWD")" >> "$GITHUB_OUTPUT"
+
+    - id: add-path
+      shell: bash
+      run: |
+        echo "/custom/bin" >> "$GITHUB_PATH"
+
+    - id: check-path
+      shell: bash
+      run: |
+        if echo "$PATH" | grep -q "/custom/bin"; then
+          echo "has-custom-bin=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "has-custom-bin=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - id: flaky
+      shell: bash
+      continue-on-error: true
+      run: exit 1
+
+    - id: warn
+      shell: bash
+      run: |
+        echo "::warning::low disk space"
+
+    - id: trigger-failure
+      if: ${{ inputs.should-fail == 'true' }}
+      shell: bash
+      run: |
+        echo "::error::abort requested"
+        exit 1
+
+    - id: on-failure
+      if: ${{ failure() }}
+      shell: bash
+      run: echo "failure handler ran"
+
+    - id: always-runs
+      if: ${{ always() }}
+      shell: bash
+      run: echo "always handler ran"

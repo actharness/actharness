@@ -1,0 +1,17 @@
+name: Network Mock — bash mockGitHubApi
+description: Fixture F — mockGitHubApi over proxy (bash curl)
+
+outputs:
+  full_name:
+    description: full_name field from response
+    value: ${{ steps.fetch.outputs.full_name }}
+
+runs:
+  using: composite
+  steps:
+    - id: fetch
+      shell: bash
+      run: |
+        body=$(curl -sf https://api.github.com/repos/owner/repo)
+        full_name=$(echo "$body" | python3 -c "import sys,json; print(json.load(sys.stdin)['full_name'])")
+        echo "full_name=$full_name" >> "$GITHUB_OUTPUT"

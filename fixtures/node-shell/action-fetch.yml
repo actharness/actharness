@@ -1,0 +1,22 @@
+name: Node Shell Fetch
+description: "Exercises mockNetwork with shell: node — fetch intercept."
+author: actharness
+
+outputs:
+  value:
+    description: Value from response JSON
+    value: ${{ steps.fetch-data.outputs.value }}
+
+runs:
+  using: composite
+  steps:
+    - id: fetch-data
+      shell: node
+      run: |
+        (async () => {
+          const fs = require('fs');
+          const res = await fetch('https://api.example.com/data');
+          if (!res.ok) { process.exitCode = 1; return; }
+          const data = await res.json();
+          fs.appendFileSync(process.env['GITHUB_OUTPUT'], 'value=' + data.value + '\n');
+        })().catch(function(err) { process.stderr.write(err.message + '\n'); process.exitCode = 1; });

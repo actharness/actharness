@@ -1,0 +1,5 @@
+name: 'Crash Action'
+description: 'actharness/node fixture — throws an uncaught error to test stderr capture.'
+runs:
+  using: 'node22'
+  main: 'index.js'

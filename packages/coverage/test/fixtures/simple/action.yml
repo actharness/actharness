@@ -4,5 +4,5 @@ runs:
   steps:
     - id: step1
       name: run
-      shell: bash
+      shell: sh
       run: echo hi

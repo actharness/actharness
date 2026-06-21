@@ -73,6 +73,16 @@ export interface ParsedActionRuns {
   'post-entrypoint'?: string;
   // shared env (docker / node)
   env?: Record<string, string>;
+  /** Source byte-offset range for the `main:` value. Set by the parser. */
+  _mainRange?: NodeRange | undefined;
+  /** Source byte-offset range for the `pre:` value. Set by the parser. */
+  _preRange?: NodeRange | undefined;
+  /** Source byte-offset range for the `post:` value. Set by the parser. */
+  _postRange?: NodeRange | undefined;
+  /** Source byte-offset range for the `pre-if:` value. Set by the parser. */
+  _preIfRange?: NodeRange | undefined;
+  /** Source byte-offset range for the `post-if:` value. Set by the parser. */
+  _postIfRange?: NodeRange | undefined;
 }
 
 export interface ParsedAction {
@@ -186,6 +196,24 @@ export const RUNNER_DEFAULTS: Readonly<RunnerContext> = {
   debug: '',
 };
 
+// ── Python coverage data ──────────────────────────────────────────────────────
+
+export interface NodeCoverageData {
+  /** Absolute path of the JS source file. */
+  path: string;
+  /** Raw V8 script coverage object for this file. */
+  v8Data: unknown;
+  /** Inline source text (used for temp scripts that are deleted before toCoverageReport runs). */
+  source?: string;
+}
+
+export interface PythonCoverageData {
+  executedLines: number[];
+  missingLines: number[];
+  executedBranches: [number, number][];
+  missingBranches: [number, number][];
+}
+
 // ── Annotations ───────────────────────────────────────────────────────────────
 
 export interface Annotation {
@@ -228,6 +256,8 @@ export interface StepResult {
   timeout?: { minutes: number; timedOut: boolean } | undefined;
   /** Diagnostics: rendered run: script (always present for run: steps). */
   render?: { script: string; shell: string; env: Record<string, string>; cwd: string } | undefined;
+  /** Shell coverage from run: steps (only present when coverage is enabled). */
+  shellCoverage?: { lineHits: Record<number, number> } | { pythonCoverageData: PythonCoverageData } | { nodeCoverageData: NodeCoverageData[] } | undefined;
   /** Expression eval trace (only when diagnostics:'trace'). */
   trace?: ExpressionTrace[] | undefined;
   /** Annotations emitted during this step (subset of RunResult.annotations). */
@@ -306,6 +336,35 @@ export interface ShellMock {
   clear(): void;
 }
 
+// ── Network mocks (v0.2) ──────────────────────────────────────────────────────
+
+/** Octokit REST-style route → static response body or function returning one. */
+export type GitHubApiRouteResponse =
+  | Record<string, unknown>
+  | unknown[]
+  | ((params: Record<string, string>) => Record<string, unknown> | unknown[]);
+
+export type GitHubApiRoutes = Record<string, GitHubApiRouteResponse>;
+
+/** URL pattern for arbitrary network interception. */
+export type NetworkMatcher = string | RegExp | ((url: string, method: string) => boolean);
+
+export interface NetworkMockCall {
+  url: string;
+  method: string;
+  requestHeaders: Record<string, string>;
+  requestBody: string | null;
+  response: unknown;
+  matchedPattern: string;
+}
+
+export interface NetworkMock {
+  readonly calls: NetworkMockCall[];
+  readonly called: boolean;
+  readonly callCount: number;
+  clear(): void;
+}
+
 // ── Run input ─────────────────────────────────────────────────────────────────
 
 export interface Determinism {
@@ -348,11 +407,30 @@ export interface ActharnessOptions {
     | { local?: 'error' | 'noop' | 'real' | undefined; remote?: 'error' | 'noop' | 'real' | undefined }
     | undefined;
   shell?: boolean | ShellOptions | undefined;
-  workspace?: 'temp' | string | undefined;
+  /** Path to a directory to copy into the run's temp workspace, the moment a checkout-like
+   *  `uses:` step (currently: `actions/checkout@*`) executes — not eagerly at the start of
+   *  the run. Matches real GitHub Actions: the workspace has no repo content until checkout
+   *  runs, so a step before checkout sees an empty workspace, same as on the real runner.
+   *  If the action under test never has such a step, this is simply never used. Always a
+   *  copy, never in-place. Relative paths resolve against the calling test file's directory
+   *  (same convention as the `source` argument to `actharness()`). Omit for the default: an
+   *  empty workspace for the whole run. */
+  workspace?: string | undefined;
+  /** Parent directory under which the disposable temp workspace dir is created.
+   *  Default: os.tmpdir(). Unrelated to `workspace` above. */
+  tempDir?: string | undefined;
   keepWorkspace?: boolean | undefined;
   determinism?: Determinism | undefined;
   diagnostics?: 'errors' | 'trace' | undefined;
   isolation?: 'scoped' | 'vm' | 'container' | 'deny-net' | undefined;
   defaults?: RunInput | undefined;
   container?: 'mock' | 'docker' | 'podman' | ContainerBackend | undefined;
+  /** Override pwsh isolation mode. 'runspace' (default) reuses one pwsh process and isolates
+   *  steps via Runspaces. 'process' spawns a dedicated pwsh process per step — complete
+   *  isolation at the cost of ~500 ms/step. */
+  pwshIsolation?: 'runspace' | 'process' | undefined;
+  /** Maps dist entrypoint paths (as declared in action.yml) to source paths for test execution.
+   *  Relative to each action's directory. Applied to all node22 actions in the run, including
+   *  child actions dispatched via uses:. E.g. { 'dist/index.js': 'src/index.js' } */
+  nodeSource?: Record<string, string> | undefined;
 }

@@ -1,0 +1,15 @@
+name: 'Octokit Node Action'
+description: 'actharness/node fixture — uses @actions/github Octokit for API calls.'
+inputs:
+  token:
+    description: 'GitHub token'
+    required: true
+  issue-number:
+    description: 'Issue number to list comments for'
+    required: true
+outputs:
+  comment-count:
+    description: 'Number of comments'
+runs:
+  using: 'node22'
+  main: 'index.js'

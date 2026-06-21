@@ -1,0 +1,19 @@
+name: Node API
+description: Node action integration fixture — Octokit API call with mockGitHubApi.
+author: actharness
+
+inputs:
+  token:
+    description: GitHub token
+    required: true
+  issue-number:
+    description: Issue number to fetch comments for
+    required: true
+
+outputs:
+  comment-count:
+    description: Number of comments on the issue
+
+runs:
+  using: node22
+  main: dist/index.js

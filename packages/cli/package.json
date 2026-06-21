@@ -38,6 +38,7 @@
   "dependencies": {
     "@actharness/composite": "workspace:*",
     "@actharness/core": "workspace:*",
+    "@actharness/node": "workspace:*",
     "@actharness/coverage": "workspace:*",
     "@actharness/matchers": "workspace:*",
     "@actharness/types": "workspace:*",

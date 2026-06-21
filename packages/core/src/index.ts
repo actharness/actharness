@@ -75,6 +75,7 @@ export {
   runInDescribeScope,
   runInTestScope,
   globalMock,
+  globalMockOnce,
   globalResetMocks,
 } from './mock-scope.js';
 

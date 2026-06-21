@@ -7,7 +7,9 @@ temp/
 coverage/
 !packages/coverage/
 !spike/coverage/
+test-results/
 
 *.DS_Store
 *.tgz
+*.vsix
 .env

@@ -6,7 +6,7 @@ export default defineConfig({
   dts: false,
   clean: true,
   sourcemap: true,
-  target: 'node20',
+  target: 'node22',
   external: ['vscode'],
   noExternal: ['typescript'],
 });

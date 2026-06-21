@@ -6,5 +6,5 @@ import { compositeExecutor } from './composite-executor.js';
 
 registerExecutor(compositeExecutor);
 
-export { ShellSandbox } from './shell-sandbox.js';
+export { ShellSandbox } from '@actharness/shell';
 export { compositeExecutor } from './composite-executor.js';

@@ -1,5 +1,5 @@
 {
-  "name": "@actharness/vscode",
+  "name": "actharness-vscode",
   "displayName": "actharness",
   "repository": {
     "type": "git",
@@ -7,8 +7,9 @@
     "directory": "packages/vscode"
   },
   "description": "GitHub Actions unit testing — run actharness tests from the Test Explorer",
+  "private": true,
   "publisher": "actharness",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "license": "MIT",
   "icon": "icon.png",
   "engines": {
@@ -36,14 +37,16 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --coverage"
+    "test": "vitest run --coverage",
+    "package": "vsce package --no-dependencies",
+    "publish": "vsce publish --no-dependencies"
   },
   "dependencies": {
     "typescript": "^6.0.3"
   },
   "devDependencies": {
     "@types/node": "^22.19.21",
-    "@types/vscode": "^1.120.0",
+    "@types/vscode": "^1.88.0",
     "@vitest/coverage-v8": "^4.1.8",
     "tsup": "^8.5.1",
     "vitest": "^4.1.8"

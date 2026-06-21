@@ -1,6 +1,11 @@
 packages:
   - 'packages/*'
   - 'fixtures'
+  - 'fixtures/node-greet'
+  - 'fixtures/node-lifecycle-if'
+  - 'fixtures/node-api'
+  - 'fixtures/checkout-workspace/node-reader'
+  - 'fixtures/checkout-workspace/node-reader-relative'
 allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:

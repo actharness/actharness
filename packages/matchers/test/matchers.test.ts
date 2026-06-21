@@ -49,6 +49,7 @@ function makeStep(
     outcome: conclusion,
     conclusion,
     outputs,
+    annotations: [],
     stdout: '',
     stderr: '',
   };
@@ -686,6 +687,38 @@ describe('expect(StepResult).toHaveFailed', () => {
   });
 });
 
+describe('expect(StepResult).toHaveBeenSkipped', () => {
+  it('passes when conclusion is skipped', () => {
+    vitestExpect(() =>
+      expect(makeStepResult({ conclusion: 'skipped' })).toHaveBeenSkipped(),
+    ).not.toThrow();
+  });
+
+  it('throws when conclusion is success', () => {
+    vitestExpect(() =>
+      expect(makeStepResult({ id: 'deploy', conclusion: 'success' })).toHaveBeenSkipped(),
+    ).toThrow(MatchError);
+  });
+
+  it('error message includes step id', () => {
+    vitestExpect(() =>
+      expect(makeStepResult({ id: 'deploy', conclusion: 'success' })).toHaveBeenSkipped(),
+    ).toThrow(/deploy/);
+  });
+
+  it('.not passes when conclusion is success', () => {
+    vitestExpect(() =>
+      expect(makeStepResult({ conclusion: 'success' })).not.toHaveBeenSkipped(),
+    ).not.toThrow();
+  });
+
+  it('.not throws when conclusion is skipped', () => {
+    vitestExpect(() =>
+      expect(makeStepResult({ conclusion: 'skipped' })).not.toHaveBeenSkipped(),
+    ).toThrow(MatchError);
+  });
+});
+
 describe('expect(StepResult).toHaveOutput', () => {
   it('passes when output matches', () => {
     vitestExpect(() =>
@@ -736,6 +769,12 @@ describe('expect(undefined) step not found', () => {
   it('toHaveFailed throws when step is undefined', () => {
     vitestExpect(() =>
       expect(undefined).toHaveFailed(),
+    ).toThrow('Expected step to exist, but step was not found');
+  });
+
+  it('toHaveBeenSkipped throws when step is undefined', () => {
+    vitestExpect(() =>
+      expect(undefined).toHaveBeenSkipped(),
     ).toThrow('Expected step to exist, but step was not found');
   });
 

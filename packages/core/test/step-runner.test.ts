@@ -14,7 +14,7 @@ import { ScopeRegistry, scopeALS } from '../src/mock-scope.js';
 
 const MINIMAL_ACTION = { name: 'T', runs: { using: 'composite', steps: [] as ParsedStep[] } };
 
-function makeStore(overrides: { os?: string; env?: Record<string, string> } = {}) {
+function makeStore(overrides: { os?: string; env?: Record<string, string>; secrets?: Record<string, string> } = {}) {
   const ws = mkdtempSync(join(tmpdir(), 'actharness-ws-'));
   const jobStatus = createJobStatus();
   const { github, runner, inputs, env, secrets, matrix, needs } = buildContexts(
@@ -30,7 +30,7 @@ function makeStore(overrides: { os?: string; env?: Record<string, string> } = {}
     runner: overrides.os ? { ...runner, os: overrides.os } : runner,
     inputs,
     env: { ...env, ...overrides.env },
-    secrets,
+    secrets: { ...secrets, ...overrides.secrets },
     matrix,
     needs,
     jobStatus,
@@ -375,6 +375,133 @@ describe('runSteps — uses: steps', () => {
   });
 });
 
+describe('runSteps — checkout-gated workspace seeding (options.workspace)', () => {
+  it('does not seed the workspace before a checkout-like step runs', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'actharness-ws-'));
+    const seedDir = mkdtempSync(join(tmpdir(), 'actharness-seed-'));
+    writeFileSync(join(seedDir, 'seeded.txt'), 'hello');
+
+    let entriesBeforeCheckout: string[] = [];
+    const sandbox = {
+      shell: vi.fn().mockImplementation(async () => {
+        const { readdirSync } = await import('node:fs');
+        entriesBeforeCheckout = readdirSync(workspace);
+        return { exitCode: 0, stdout: '', stderr: '', timedOut: false };
+      }),
+    };
+
+    await runSteps(
+      [
+        step({ id: 'before', run: 'echo pre-checkout', shell: 'bash' }),
+        step({ id: 'checkout', uses: 'actions/checkout@v4' }),
+      ],
+      makeStore(),
+      makeOpts({ workspace, sandbox, actharnessOptions: { workspace: seedDir } }),
+    );
+
+    expect(entriesBeforeCheckout).toEqual([]);
+    rmSync(workspace, { recursive: true, force: true });
+    rmSync(seedDir, { recursive: true, force: true });
+  });
+
+  it('seeds the workspace once the checkout-like step runs', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'actharness-ws-'));
+    const seedDir = mkdtempSync(join(tmpdir(), 'actharness-seed-'));
+    writeFileSync(join(seedDir, 'seeded.txt'), 'hello-from-seed');
+
+    let seededContentAfterCheckout = '';
+    const sandbox = {
+      shell: vi.fn().mockImplementation(async () => {
+        const { readFileSync } = await import('node:fs');
+        seededContentAfterCheckout = readFileSync(join(workspace, 'seeded.txt'), 'utf8');
+        return { exitCode: 0, stdout: '', stderr: '', timedOut: false };
+      }),
+    };
+
+    await runSteps(
+      [
+        step({ id: 'checkout', uses: 'actions/checkout@v4' }),
+        step({ id: 'after', run: 'cat seeded.txt', shell: 'bash' }),
+      ],
+      makeStore(),
+      makeOpts({ workspace, sandbox, actharnessOptions: { workspace: seedDir } }),
+    );
+
+    expect(seededContentAfterCheckout).toBe('hello-from-seed');
+    rmSync(workspace, { recursive: true, force: true });
+    rmSync(seedDir, { recursive: true, force: true });
+  });
+
+  it('does not seed when the action has no checkout-like step at all', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'actharness-ws-'));
+    const seedDir = mkdtempSync(join(tmpdir(), 'actharness-seed-'));
+    writeFileSync(join(seedDir, 'seeded.txt'), 'hello');
+
+    await runSteps(
+      [step({ id: 's1', run: 'echo no-checkout-here', shell: 'bash' })],
+      makeStore(),
+      makeOpts({ workspace, actharnessOptions: { workspace: seedDir } }),
+    );
+
+    const { readdirSync } = await import('node:fs');
+    expect(readdirSync(workspace)).toEqual([]);
+    rmSync(workspace, { recursive: true, force: true });
+    rmSync(seedDir, { recursive: true, force: true });
+  });
+
+  it('fails the checkout step with a ConfigError when options.workspace does not exist', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'actharness-ws-'));
+    const missing = join(tmpdir(), `actharness-missing-${Date.now()}`);
+
+    // The step loop catches errors per-step (consistent with how any other step error is
+    // handled) rather than rejecting runSteps() itself — so a bad seed path fails just the
+    // checkout step, with the ConfigError message surfaced in that step's stderr.
+    const result = await runSteps(
+      [step({ id: 'checkout', uses: 'actions/checkout@v4' })],
+      makeStore(),
+      makeOpts({ workspace, actharnessOptions: { workspace: missing } }),
+    );
+    expect(result.steps[0]?.conclusion).toBe('failure');
+    expect(result.steps[0]?.stderr).toMatch(/does not exist/);
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it('fails the checkout step with a ConfigError when options.workspace is a file, not a directory', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'actharness-ws-'));
+    const seedParent = mkdtempSync(join(tmpdir(), 'actharness-seed-'));
+    const filePath = join(seedParent, 'not-a-dir.txt');
+    writeFileSync(filePath, 'x');
+
+    const result = await runSteps(
+      [step({ id: 'checkout', uses: 'actions/checkout@v4' })],
+      makeStore(),
+      makeOpts({ workspace, actharnessOptions: { workspace: filePath } }),
+    );
+    expect(result.steps[0]?.conclusion).toBe('failure');
+    expect(result.steps[0]?.stderr).toMatch(/must be a directory/);
+    rmSync(workspace, { recursive: true, force: true });
+    rmSync(seedParent, { recursive: true, force: true });
+  });
+
+  it('leaves the seed-source directory untouched after seeding', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'actharness-ws-'));
+    const seedDir = mkdtempSync(join(tmpdir(), 'actharness-seed-'));
+    writeFileSync(join(seedDir, 'seeded.txt'), 'hello');
+
+    await runSteps(
+      [step({ id: 'checkout', uses: 'actions/checkout@v4' })],
+      makeStore(),
+      makeOpts({ workspace, actharnessOptions: { workspace: seedDir } }),
+    );
+
+    const { readFileSync, existsSync } = await import('node:fs');
+    expect(existsSync(join(seedDir, 'seeded.txt'))).toBe(true);
+    expect(readFileSync(join(seedDir, 'seeded.txt'), 'utf8')).toBe('hello');
+    rmSync(workspace, { recursive: true, force: true });
+    rmSync(seedDir, { recursive: true, force: true });
+  });
+});
+
 describe('runSteps — protocol / env propagation', () => {
   it('propagates env from GITHUB_ENV file to subsequent steps', async () => {
     let callCount = 0;
@@ -412,6 +539,22 @@ describe('runSteps — protocol / env propagation', () => {
     const store = makeStore();
     await runSteps([step({ id: 's1', run: 'echo', shell: 'bash' })], store, makeOpts({ sandbox }));
     expect(store.masks.has('secretvalue')).toBe(true);
+  });
+
+  it('masks provided secret values in captured stdout and stderr', async () => {
+    const sandbox = makeSandbox(0, 'token: myplaintexttoken\n', 'error: myplaintexttoken\n');
+    const store = makeStore({ secrets: { API_TOKEN: 'myplaintexttoken' } });
+    const result = await runSteps([step({ id: 's1', run: 'echo', shell: 'bash' })], store, makeOpts({ sandbox }));
+    expect(result.steps[0]!.stdout).toBe('token: ***\n');
+    expect(result.steps[0]!.stderr).toBe('error: ***\n');
+  });
+
+  it('does not mask secret values in the script passed to the sandbox', async () => {
+    const sandbox = makeSandbox();
+    const store = makeStore({ secrets: { API_TOKEN: 'myplaintexttoken' } });
+    await runSteps([step({ id: 's1', run: 'curl -H "Authorization: Bearer myplaintexttoken"', shell: 'bash' })], store, makeOpts({ sandbox }));
+    const calledScript = (sandbox.shell.mock.calls[0]?.[0] as { script: string }).script;
+    expect(calledScript).toContain('myplaintexttoken');
   });
 
   it('prepends ::add-path:: entries to PATH for subsequent steps', async () => {
@@ -534,6 +677,21 @@ describe('runSteps — real local uses: dispatch', () => {
     const result = await runSteps([step({ id: 's1', uses: './child' })], makeStore(), opts);
     expect(result.steps[0]?.conclusion).toBe('failure');
     rmSync(workspace, { recursive: true, force: true });
+  });
+});
+
+describe('runSteps — shell coverage', () => {
+  it('captures shellCoverage from sandbox result and sets it on the step result', async () => {
+    const shellCoverage = { lineHits: { 1: 1 } };
+    const sandbox = {
+      shell: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '', timedOut: false, shellCoverage }),
+    };
+    const result = await runSteps(
+      [step({ id: 's1', run: 'echo hi', shell: 'sh' })],
+      makeStore(),
+      makeOpts({ sandbox }),
+    );
+    expect(result.steps[0]?.shellCoverage).toEqual(shellCoverage);
   });
 });
 

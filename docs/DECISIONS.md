@@ -253,7 +253,7 @@ semantic-release's *core* is solid but single-package; the monorepo layer (`mult
 
 **Decision.** Two mock entries, by dependency kind: `mock(ref)` for `uses:` dependencies (unified across composite/node/docker), and `mockGitHubApi`/`mockNetwork` (v0.2) for a JS action's *internal* Octokit/fetch. **Not** collapsed into one `mock(target)`.
 
-**Why.** A `uses:` target ("an action you call") and a JS action's internal calls are genuinely different dependency kinds; honest typing beats one overloaded entry that would dispatch by sniffing the target string (ambiguous: a `uses:` ref vs an API route). The v0.1 surface (`mock` + `mockShellCommand`) is unaffected.
+**Why.** A `uses:` target ("an action you call") and a JS action's internal calls are genuinely different dependency kinds; honest typing beats one overloaded entry that would dispatch by sniffing the target string (ambiguous: a `uses:` ref vs an API route). The v0.1 surface (`mock`) is unaffected.
 
 **Rejected.** Unify into `mock(target)` — "one mental model," but more magic, ambiguous typing, weaker type-checking. *(Previously tracked as the open question O1; now decided. Revisitable if a v0.2 sandbox spike reveals a clean unification — but it is not an open item.)*
 
@@ -319,15 +319,15 @@ semantic-release's *core* is solid but single-package; the monorepo layer (`mult
 
 **Enforced in.** [CONTEXTS → Event payloads](CONTEXTS.md#event-payloads) · [fixtures.md](../specs/modules/fixtures.md).
 
-## D28 — `timeout-minutes` captured, not wall-clock enforced
+## D28 — `timeout-minutes` is enforced at the step level
 
-**Decision.** Record the declared `timeout-minutes` (step + job) and make it assertable; expose `timedOut` only when a test opts into real time. Not enforced by default.
+**Decision.** Honor `timeout-minutes` declared on a composite step: send SIGTERM then SIGKILL if the subprocess exceeds the limit. `StepResult.timedOut` is set to `true` when triggered.
 
-**Why.** Under the frozen clock ([D17](#d17--determinism-frozen-by-default)) a real timeout is meaningless; enforcing wall-clock would make tests time-dependent and flaky.
+**Why.** `timeout-minutes` is declared by the action author in `action.yml` — it expresses intent about acceptable step duration. Ignoring it would silently let stuck steps run forever in tests, masking bugs. Sandbox steps complete near-instantly in practice so the timeout only fires when something is genuinely wrong.
 
-**Rejected.** Enforce real wall-clock timeouts — conflicts with frozen determinism, introduces timing flakiness.
+**Rejected.** Treat timeout as captured-only (assertable but not enforced) — would mask stuck steps and diverge from real GitHub Actions behavior.
 
-**Enforced in.** [ARCHITECTURE → Fidelity & semantics](ARCHITECTURE.md#fidelity--semantics) + [Coverage boundary](ARCHITECTURE.md#coverage-boundary) · API.md `StepResult.timeout`.
+**Enforced in.** `packages/shell/src/shell-sandbox.ts` (`spawnAndCapture`) · [ARCHITECTURE → Fidelity & semantics](ARCHITECTURE.md#fidelity--semantics).
 
 ## D29 — Mask `add-mask` values + all provided secrets
 
@@ -414,7 +414,7 @@ semantic-release's *core* is solid but single-package; the monorepo layer (`mult
 **Decision.** Defaults (single-sourced in `@actharness/types`, imported by both `@actharness/core` and `@actharness/fixtures`; all overridable per run):
 - **github:** `actor`/`triggering_actor` `octocat`, `sha` 40×`0`, `ref` `refs/heads/main` (`ref_name` `main`, `ref_type` `branch`), `run_id`/`run_number`/`run_attempt` `1`; `repository` `'owner/repo'`, `repository_owner` `'owner'` (fixed synthetic — [D35](#d35--githubrepository-uses-a-fixed-synthetic-default)).
 - **runner:** `os` `Linux` ([D34](#d34--runneros-default-is-linux-overridable)), `arch` `X64` (fixed), `name` `actharness`, `tool_cache` `/opt/hostedtoolcache`, `environment` `github-hosted`.
-- **run options:** `jobStatus` `success`, `diagnostics` `errors`, `workspace` `temp`, `isolation` `scoped`, `container` `mock` (v0.3).
+- **run options:** `jobStatus` `success`, `diagnostics` `errors`, `workspace` unset (empty workspace), `tempDir` unset (`os.tmpdir()`), `isolation` `scoped`, `container` `mock` (v0.3).
 - **coverage:** `reporters` `['lcov', 'html', 'text']`, `coverageDir` `./coverage`.
 
 **Why.** Stable, obviously-synthetic defaults keep snapshots stable ([D17](#d17--determinism-frozen-by-default)) and the simplest test one line; each is overridable for the test that cares. `octocat` replaces the old library-name `actharness` for `actor`; `arch` stays a fixed `X64`, consistent with the fixed `runner.os`.
@@ -537,6 +537,8 @@ semantic-release's *core* is solid but single-package; the monorepo layer (`mult
 
 **Rejected.** Requiring absolute paths — unergonomic; callers shouldn't need `path.join(__dirname, './action.yml')`. Using `process.cwd()` as the default base — breaks when the CLI is invoked from a different directory than the test file. `import.meta.url` — unavailable when `actharness` is a CLI-injected global.
 
+The same convention applies to `options.workspace` — a relative path there is also resolved against the calling test file's directory, not `process.cwd()`.
+
 **Enforced in.** `packages/core/src/action-runner.ts` (`_dirFromStack` + `actharness()`) · `packages/core/test/action-runner.test.ts`.
 
 ## D49 — `ActharnessFn` type exported from the meta-package; `actharness.mock()` is the global mock surface
@@ -559,6 +561,38 @@ semantic-release's *core* is solid but single-package; the monorepo layer (`mult
 
 **Enforced in.** `packages/matchers/src/expect.ts` (`buildStepResultHandle` + overloads) · `packages/actharness/globals.d.ts` (global `expect` overload) · `packages/matchers/test/matchers.test.ts` (two coverage cases).
 
+## D51 — Unified `mockOnce` surface across all mock types
+
+**Decision.** Every mock registration function has a `*Once` sibling (`mockOnce`, `mockGitHubApiOnce`, `mockNetworkOnce`). Once-entries queue per-ref in FIFO order, are consumed on first match, and when the queue is exhausted the resolver falls through to the persistent registration (if any) — or to unmocked behaviour if none exists. `resetMocks()` clears both persistent registrations and once-queues.
+
+**Why.** The v0.1/v0.2 surfaces had an asymmetry: action mocks supported `mockImplementationOnce` on the handle but network mocks had no equivalent, and there was no top-level `mockOnce` shorthand for either. The Jest/Vitest model (persistent `mock` + FIFO `mockOnce`, explicit `reset`) is well-understood and consistently useful: register the common case persistently and override exactly one call without touching the persistent default. Unifying the pattern across all three surfaces (action, GitHub API, network) eliminates the asymmetry at the public API level.
+
+**Rejected.** Per-surface once semantics (network mock once silently discarded; action once only on the handle) — asymmetric and hard to discover. Auto-clearing once-entries between runs — too implicit; explicit `resetMocks()` mirrors Jest and avoids surprise.
+
+**Enforced in.** `packages/core/src/mock-scope.ts` (`ScopeRegistry.mockOnce`, `isEmpty`, `lookupMock` skip-empty) · `packages/network-mock/src/registry.ts` (`mockNetworkOnce`, `mockGitHubApiOnce`, `pruneConsumedOnce`) · `packages/cli/src/register.ts` (all six methods on `actharnessWithMocks`) · `packages/actharness/src/index.ts` (`ActharnessFn` type) · [specs/modules/mock-surface.md](../specs/modules/mock-surface.md).
+
 ---
 
-*Recorded during an explicit decision session on 2026-06-05, before any v0.1 implementation. All decisions are ratified with the maintainer and mirrored inline in the specs/docs linked above: D1–D6 resolved under-specified seams; D7–D14 are project/tooling; D15–D39 ratify architecture, strategy, defaults, and explicit deferrals. D40 added post-session from the workflow spike (H3 finding). D41 added during doc review: shared types package breaks the fixtures ↔ core circular dependency; codegen package renamed to `@actharness/gen`. D42–D44 added during v0.1 implementation: coverage `parseAction` contract, ESLint Date-ban scoping, and CLI temp-dir naming. D45–D47 added during With-Inputs removal: metric redundancy rationale, step header/body counter semantics, and output detection logic. D48–D50 added during v0.1 fixture integration: stack-trace relative path resolution for `actharness('./path')`, `ActharnessFn` type and global mock surface on `actharness.*` (not `action.*`), and `expect(StepResult | undefined)` overload design.*
+## D52 — Network mocks are ALS-scoped, not module-global
+
+**Decision.** `mockNetwork`, `mockGitHubApi`, and their `*Once` siblings store entries in the **current ALS scope** (the same `ScopeRegistry` instance that action mocks use), via a `WeakMap<ScopeRegistry, { apiEntries, networkEntries }>`. `drainForProxy()` and `drainForNode()` walk `currentStack()` innermost-first, so test-scope entries shadow describe-scope entries, which shadow file-scope entries — matching the action mock "inner overrides outer" resolution exactly. `resetNetworkMocks()` deletes the current scope's state from the WeakMap.
+
+**Why.** The original implementation used two module-level arrays (`_pendingApiMocks`, `_pendingNetworkMocks`). This meant all `actharness()` handles in the same test file shared the same pending network mocks — leaking between handles within an `it` block if `resetNetworkMocks()` was not called manually. Action mocks had no such problem (they used `ScopeRegistry` from the start). The asymmetry violated the isolation invariant stated in ARCHITECTURE.md and was confusing to users who expected the same scoping behaviour across all mock types.
+
+**Rejected.** Storing network entries as fields on `ScopeRegistry` — would require `@actharness/core` to import network-mock types, creating a coupling. The `WeakMap` sidechannel in `@actharness/network-mock` gives the same scope-awareness with no changes to core. Per-handle storage (one entry list per `actharness()` call) — network mocks are registered outside the `actharness()` call site and there is no natural handle to attach them to.
+
+**Enforced in.** `packages/network-mock/src/registry.ts` (`_scopeState` WeakMap, `getScopeState`, updated `drainForProxy`, `drainForNode`, `resetNetworkMocks`, `pruneConsumedOnce`) · `docs/ARCHITECTURE.md` (isolation invariant paragraph).
+
+## D53 — `pwshIsolation` is an actharness option, not an action.yml field; driven by Add-Type state bleed
+
+**Decision.** `pwshIsolation: 'runspace' | 'process'` is exposed as an `ActharnessOptions` field, set in the test via `actharness('./action.yml', { pwshIsolation: 'process' })`. It is **not** a field in `action.yml`. The default (`'runspace'`) keeps a single persistent pwsh host process alive for the entire run and isolates each step in its own `[RunspaceFactory]::CreateRunspace()` — fast, no per-step startup cost. `'process'` spawns a dedicated pwsh process per step (~500 ms overhead) for complete .NET AppDomain isolation.
+
+**Why.** `action.yml` is the real GitHub Actions composite action manifest format. Adding custom, non-standard fields to it would break schema validation and create a manifest that is only valid inside actharness — the whole point is that the action is a real, deployable action. `pwshIsolation` is a **test concern**, not an action concern: the action has no awareness of which isolation mode the test runner uses. It belongs in `ActharnessOptions` alongside other test-time settings like `shell`, `isolation`, and `determinism`.
+
+The root driver for the feature is `Add-Type -TypeDefinition`: calling it compiles C# source into an in-memory assembly that is loaded into the .NET AppDomain of the pwsh host process. That assembly persists for the lifetime of the process — it cannot be unloaded. In `'runspace'` mode all steps share the same host process, so an assembly compiled in step N is visible in step N+1, which diverges from the real GitHub Actions runner where each step gets a fresh pwsh process. `'process'` mode matches the real runner's process-per-step behavior exactly, at the cost of startup time.
+
+**Enforced in.** `packages/types/src/index.ts` (`ActharnessOptions.pwshIsolation`) · `packages/shell/src/shell-sandbox.ts` (process-mode bypass) · `packages/shell/src/pwsh-session.ts` (`addTypeDetected` sentinel field) · `docs/API.md` (`pwshIsolation` option docs) · `docs/ARCHITECTURE.md` (pwsh shell table row).
+
+---
+
+*Recorded during an explicit decision session on 2026-06-05, before any v0.1 implementation. All decisions are ratified with the maintainer and mirrored inline in the specs/docs linked above: D1–D6 resolved under-specified seams; D7–D14 are project/tooling; D15–D39 ratify architecture, strategy, defaults, and explicit deferrals. D40 added post-session from the workflow spike (H3 finding). D41 added during doc review: shared types package breaks the fixtures ↔ core circular dependency; codegen package renamed to `@actharness/gen`. D42–D44 added during v0.1 implementation: coverage `parseAction` contract, ESLint Date-ban scoping, and CLI temp-dir naming. D45–D47 added during With-Inputs removal: metric redundancy rationale, step header/body counter semantics, and output detection logic. D48–D50 added during v0.1 fixture integration: stack-trace relative path resolution for `actharness('./path')`, `ActharnessFn` type and global mock surface on `actharness.*` (not `action.*`), and `expect(StepResult | undefined)` overload design. D51–D52 added during v0.1 post-ship: unified `mockOnce` surface and ALS-scoped network mock storage. D53 added post-ship: pwshIsolation option and Add-Type state bleed.*

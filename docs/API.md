@@ -30,8 +30,27 @@ interface ActharnessOptions {
   unmockedUses?: 'error' | 'noop' | 'real' | { local?: 'error' | 'noop' | 'real'; remote?: 'error' | 'noop' | 'real' };
   /** Execute `run:` steps in a real shell sandbox (true) or require them stubbed (false). Default: true. */
   shell?: boolean | ShellOptions;
-  /** Workspace strategy for run: steps. 'temp' (default, auto-cleaned) or an explicit dir. */
-  workspace?: 'temp' | string;
+  /** Path to a directory to copy into the run's disposable workspace, the moment a checkout-like
+   *  `uses:` step (currently: `actions/checkout@*`) executes — not eagerly at the start of the
+   *  run. Matches real GitHub Actions: the workspace has no repo content until checkout runs, so
+   *  a step before checkout sees an empty workspace, same as on the real runner. If the action
+   *  under test never has such a step, this is simply never used. Always a copy, never in-place
+   *  — safe whether this points at a fixture dir or a real project root. Relative paths resolve
+   *  against the calling test file's directory (same convention as the `source` argument to
+   *  `actharness()`). Omit for the default: an empty workspace for the whole run.
+   *
+   *  Seeding fires even when the checkout step is mocked — the workspace is populated regardless
+   *  of whether `actions/checkout` is replaced with a mock. This lets you test steps that rely
+   *  on workspace content without needing the real checkout action to run.
+   *
+   *  Not to be confused with `github.workspace` / `$GITHUB_WORKSPACE` — the resolved runtime path
+   *  the action sees during execution. `options.workspace` is content copied into whatever
+   *  directory becomes `github.workspace` at runtime; it does not control that path itself. */
+  workspace?: string;
+  /** Parent directory under which the disposable temp workspace dir is created. Default: `os.tmpdir()`.
+   *  Unrelated to `workspace` above — this controls *where* the temp dir lives on disk, not what's
+   *  copied into it. */
+  tempDir?: string;
   /** Keep the temp workspace after the run for debugging. Default: false. */
   keepWorkspace?: boolean;
   /** Determinism (frozen by default — see below). Override per-run via RunInput too. */
@@ -40,6 +59,11 @@ interface ActharnessOptions {
   diagnostics?: 'errors' | 'trace';
   /** Sandbox hardening for untrusted actions. 'scoped' (default) | 'vm' | 'container' | 'deny-net'. */
   isolation?: 'scoped' | 'vm' | 'container' | 'deny-net';
+  /** pwsh step isolation mode. 'runspace' (default) keeps one pwsh host process alive for the run
+   *  and isolates each step in its own Runspace — fast (~0 ms/step overhead). 'process' spawns a
+   *  fresh pwsh process per step — full isolation, ~500 ms/step. Use 'process' when a step calls
+   *  Add-Type or otherwise mutates global .NET state that must not bleed across steps. */
+  pwshIsolation?: 'runspace' | 'process';
   /** Context applied to *every* run() unless overridden per-call. */
   defaults?: RunInput;
   /** Container backend for docker actions (v0.3). Default: 'mock'. */
@@ -87,16 +111,20 @@ type ActharnessFn = {
   // ── action mocks (v0.1) ──
   /** Mock an action invoked via `uses:`, by ref. The primary, type-agnostic mock surface. */
   mock(ref: string, def?: ActionMockDef | ActionMockImpl): ActionMock;
-  /** Remove all mocks entirely. Typically called in afterEach. */
+  /** One-shot variant: consumed after the first invocation; exhausted once acts like no mock. */
+  mockOnce(ref: string, def?: ActionMockDef | ActionMockImpl): ActionMock;
+  /** Remove all mocks and once-queues. Typically called in afterEach. */
   resetMocks(): void;
 
   // ── JS-action internal mocks (v0.2) ──
   /** Mock GitHub API / Octokit calls a JS action makes internally. */
   mockGitHubApi(routes: GitHubApiRoutes): NetworkMock;
+  /** One-shot variant: consumed after the first matching request. */
+  mockGitHubApiOnce(routes: GitHubApiRoutes): NetworkMock;
   /** Mock arbitrary network for a JS/composite child. */
-  mockNetwork(matcher: NetworkMatcher): NetworkMock;
-  /** Stub a shell command inside run: steps, e.g. `git`, `curl`. */
-  mockShellCommand(cmd: string | RegExp, impl: ShellCommandImpl): ShellMock;
+  mockNetwork(matcher: NetworkMatcher, status: number, response: unknown, headers?: Record<string, string>): NetworkMock;
+  /** One-shot variant: consumed after the first matching request. */
+  mockNetworkOnce(matcher: NetworkMatcher, status: number, response: unknown, headers?: Record<string, string>): NetworkMock;
 
   // ── workflow-scope mocks (v0.4) ──
   /** Mock an entire job by id — declare its outputs/result instead of running it. */
@@ -110,6 +138,12 @@ export const actharness: ActharnessFn;
 ```
 
 > **Why `actharness.mock()` for `uses:` and separate `actharness.mockGitHubApi()`/`actharness.mockNetwork()`?** A `uses:` target is a *dependency you call* — unified across composite/node/docker. What a JS action does *inside itself* (Octokit, fetch) is a different kind of dependency. Same mental model ("mock your dependencies"), honestly typed instead of one overloaded magic function.
+>
+> **`mock` vs `mockOnce`.** All three surfaces (`mock`/`mockGitHubApi`/`mockNetwork`) have a `*Once` sibling. Once-entries queue in FIFO order and are consumed on first match; when the queue is exhausted the call falls through to the persistent registration (if any), and if there is none, acts like no mock at all (unmocked behaviour per `unmockedUses`). This mirrors Jest/Vitest's `mockReturnValueOnce` model: set up the common case with `mock`, override a single call with `mockOnce`.
+>
+> **Network mock call records:** Each `NetworkMock` accumulates call records as the action runs. The `matchedPattern` field in each call record contains the serialized form of the matcher — a URL string or RegExp source for string/RegExp matchers, and `[fn:N]` (where N is the zero-based registration index) for function matchers. If you register multiple function matchers, use the index to identify which one fired.
+>
+> **`resetMocks()` is not called automatically between tests.** All mocks — persistent (`mock`, `mockGitHubApi`, `mockNetwork`) and once-queues (`mockOnce`, `mockGitHubApiOnce`, `mockNetworkOnce`) — persist until you call `actharness.resetMocks()`. Call it in `afterEach` to isolate tests.
 
 ---
 
@@ -199,6 +233,8 @@ interface Annotation {
 ```
 
 > `phase` is how pre/main/post stays on the unified surface: composite runs populate `main` (with children's `pre`/`post` interleaved as the runner orders them); a JS/Docker action yields up to three `StepResult`s. Filter with `result.steps.filter(s => s.phase === 'post')`.
+>
+> **`pre:` failure does not guard `main:`** — if the `pre:` script exits non-zero, `main:` still runs. This matches real GitHub Actions runner behavior: the pre and main phases are scheduled unconditionally; a failed pre marks the step as failed but does not skip main.
 
 ---
 
@@ -247,33 +283,6 @@ interface ActionMockCall {
 
 `calls` is an array of invocation records; use actharness's `toHaveBeenCalledWith` or access it directly.
 
-**Shell command mocks** — stub `run:` step commands (e.g. `git`, `curl`) for determinism:
-
-```ts
-interface ShellMockResult {
-  stdout?: string;      // default ''
-  stderr?: string;      // default ''
-  exitCode?: number;    // default 0
-}
-
-/** Static result object, or a function called with the full evaluated command string. */
-type ShellCommandImpl =
-  | ShellMockResult
-  | ((cmd: string) => ShellMockResult | Promise<ShellMockResult>);
-
-interface ShellMockCall {
-  cmd: string;          // the evaluated shell command string
-  result: ShellMockResult;
-}
-
-interface ShellMock {
-  readonly calls: ShellMockCall[];
-  readonly called: boolean;
-  readonly callCount: number;
-  clear(): void;
-}
-```
-
 ---
 
 ## 6. Matchers (`@actharness/matchers`)
@@ -281,6 +290,7 @@ interface ShellMock {
 actharness ships its **own** `expect()`. When running via `actharness test`, `expect` is injected into `globalThis` automatically (zero imports). It can also be imported directly: `import { expect } from '@actharness/matchers'`.
 
 TypeScript types for all globals are declared in `actharness/globals`. Add once to `tsconfig.json`:
+
 ```jsonc
 { "types": ["actharness/globals"] }
 ```
@@ -302,6 +312,7 @@ expect(result).toHaveAnnotation({ level: 'error', message: /missing token/ });
 // all matchers throw "Expected step to exist, but step was not found"
 expect(result.step('build')).toHaveSucceeded();
 expect(result.step('build')).toHaveFailed();
+expect(result.step('deploy')).toHaveBeenSkipped();
 expect(result.step('build')).toHaveOutput('sha', 'abc1234');
 expect(result.step('build')).toHaveAnnotation({ level: 'warning', message: /deprecated/ });
 expect(result.step('build')).toHaveStdoutContaining('compiled');
@@ -358,6 +369,7 @@ type ExprValue = null | boolean | number | string | ExprValue[] | { [k: string]:
 ## 8. Worked examples
 
 ### Composite (v0.1)
+
 ```ts
 // no imports — actharness, expect, describe, test are injected by `actharness test`
 
@@ -384,6 +396,7 @@ test('skips publish step when dry-run', async () => {
 ```
 
 ### JS action (v0.2) — identical surface
+
 ```ts
 test('node action masks the token and sets a fingerprint', async () => {
   actharness.mockGitHubApi({
@@ -404,6 +417,7 @@ test('node action masks the token and sets a fingerprint', async () => {
 ```
 
 ### Docker action (v0.3) — still identical
+
 ```ts
 test('docker action returns parsed version', async () => {
   actharness.mock('./scanner', { outputs: { report: 'clean' } }); // or run real with container:'docker'
@@ -413,6 +427,7 @@ test('docker action returns parsed version', async () => {
 ```
 
 ### Workflow (v0.4) — a parallel entry, same step/mock vocabulary
+
 ```ts
 import { actharnessWorkflow } from 'actharness';
 
@@ -434,6 +449,7 @@ test('release job runs only on a tag, after build succeeds', async () => {
 The step/output/mock matchers are identical — only `toHaveRunJob`/`toHaveJobConclusion` and `actharnessWorkflow()` are new. The `actharness()` action surface is untouched.
 
 ### Coverage (all versions) — opt-in reporting, zero test-body change
+
 ```bash
 # enable via the CLI flag — no config file needed
 actharness test --coverage --reporter text,html,lcov --threshold ifBranches=80
@@ -446,7 +462,15 @@ import { actharnessCoverage } from '@actharness/coverage';
 actharnessCoverage({
   include: ['action.yml', '.github/workflows/*.yml'],
   reporters: ['text', 'html', 'lcov'],
-  thresholds: { steps: 100, ifBranches: 80 }, // fail the suite if under
+  thresholds: {
+    // action
+    steps: 100, ifBranches: 80,
+    // shell
+    bashShellLines: 80, shShellLines: 80, pwshShellLines: 80,
+    pythonShellLines: 80, nodeShellLines: 80,
+    // node .js files
+    jsLines: 90,
+  }, // fail the suite if any metric falls below
 });
 // Tests are written exactly as above — coverage is harvested from every run() automatically.
 ```
@@ -459,7 +483,9 @@ The test body never branches on action type — or on whether it's an action or 
 
 Coverage ships from v0.1 and is **passive**: it observes every `run()` and aggregates across the suite. No change to how tests are written — only config + (optionally) thresholds. It is **parallel-safe**: `actharness test` runs each test file in its own worker; fragments are written to a temp dir per worker and merged by the CLI after all workers complete — so a fully parallel suite still yields one report (see ARCHITECTURE → Coverage).
 
-Internally, coverage is an **Istanbul-compatible coverage map** (steps → statements, `if:` → branches, v0.2 JS lines as real line coverage). That one decision means the **full Istanbul reporter set works** and the emitted `coverage-final.json` is mergeable with your other coverage via standard istanbul tooling (e.g. `nyc merge`).
+> **External runners:** shell coverage (sh/bash/pwsh/python line hits) is gated on the `ACTHARNESS_COVERAGE_TMP` env var being set to a writable directory. `actharness test --coverage` sets this automatically. If you call `run()` from a custom test runner (Jest, Vitest, plain node:test), set `ACTHARNESS_COVERAGE_TMP` to a temp directory and call `actharnessCoverage()` in a global setup; otherwise shell coverage metrics will be zero even if JS coverage works fine.
+
+Internally, coverage is an **Istanbul-compatible coverage map** (steps → statements, `if:` → branches, v0.2 JS statements/branches/functions/lines as real V8/Istanbul coverage). That one decision means the **full Istanbul reporter set works** and the emitted `coverage-final.json` is mergeable with your other coverage via standard istanbul tooling (e.g. `nyc merge`).
 
 ```ts
 /** Register the suite-level collector + reporters. Call once in a setup file. */
@@ -488,12 +514,24 @@ interface CoverageOptions {
 
 /** The layered coverage model (see ARCHITECTURE → Coverage). */
 type CoverageMetric =
-  | 'steps'          // v0.1: steps executed vs skipped
-  | 'ifBranches'     // v0.1: each if: seen both true AND false
-  | 'inputs'         // v0.1: declared inputs/defaults exercised
-  | 'outputs'        // v0.1: declared outputs actually produced
-  | 'jsLines'        // v0.2: V8 line coverage of JS action code
-  | 'jobs';          // v0.4: workflow jobs run + needs edges taken
+  | 'steps'                   // v0.1: steps executed vs skipped
+  | 'ifBranches'              // v0.1: each if: seen both true AND false
+  | 'inputs'                  // v0.1: declared inputs/defaults exercised
+  | 'outputs'                 // v0.1: declared outputs actually produced
+  | 'jsStatements'            // v0.2: V8 statement coverage of JS action code
+  | 'jsBranches'              // v0.2: V8 branch coverage of JS action code
+  | 'jsFunctions'             // v0.2: V8 function coverage of JS action code
+  | 'jsLines'                 // v0.2: V8 line coverage of JS action code
+  | 'shShellLines'            // v0.2: line coverage for shell: sh scripts
+  | 'bashShellLines'          // v0.2: line coverage for shell: bash scripts
+  | 'pwshShellLines'          // v0.2: line coverage for shell: pwsh scripts
+  | 'pythonShellStatements'   // v0.2: statement coverage for shell: python scripts
+  | 'pythonShellBranches'     // v0.2: branch coverage for shell: python scripts
+  | 'pythonShellLines'        // v0.2: line coverage for shell: python scripts
+  | 'nodeShellLines'          // v0.2: line coverage for shell: node scripts
+  | 'nodeShellStatements'     // v0.2: statement coverage for shell: node scripts
+  | 'nodeShellBranches'       // v0.2: branch coverage for shell: node scripts
+  | 'jobs';                   // v0.4: workflow jobs run + needs edges taken
 
 /** Programmatic access (e.g. for custom assertions or CI gating). */
 export function getCoverage(): CoverageReport;
@@ -532,6 +570,23 @@ interface FileCoverage {
   ifBranches: CoverageStat;
   inputs: CoverageStat;
   outputs: CoverageStat;
+  /** v0.2: partial line-only coverage via PS4/set -x tracing. Full branch/statement/function coverage is unsolved. */
+  shShellLines?: CoverageStat;
+  bashShellLines?: CoverageStat;
+  pwshShellLines?: CoverageStat;  // also covers shell: powershell steps (treated as pwsh)
+  /** v0.2: Python coverage via coverage.py — statement + branch + line. */
+  pythonShellStatements?: CoverageStat;
+  pythonShellBranches?: CoverageStat;
+  pythonShellLines?: CoverageStat;
+  /** v0.2: shell: node coverage via V8 inspector — line + statement + branch. */
+  nodeShellLines?: CoverageStat;
+  nodeShellStatements?: CoverageStat;
+  nodeShellBranches?: CoverageStat;
+  /** v0.2: JS coverage from V8 — present only when the action is a node action. */
+  jsStatements?: CoverageStat;
+  jsBranches?: CoverageStat;
+  jsFunctions?: CoverageStat;
+  jsLines?: CoverageStat;
   /** Per-`if:` truth table: how many times each branch resolved true/false. */
   ifBranchTable: IfBranchRow[];
   /** Per-input exercise table: provided-path vs default-path coverage. */
@@ -766,6 +821,7 @@ actharness test 'src/**/*.actharness.ts'       # custom pattern
 actharness test --coverage                  # emit Istanbul reports
 actharness test --reporter html,lcov        # reporter selection
 actharness test --threshold ifBranches=80   # fail if under
+actharness test --workers 4                 # parallel worker count (default: CPU count)
 
 # scaffold a test for an existing action
 actharness init ./action.yml                # writes action.test.ts with no imports
@@ -773,7 +829,7 @@ actharness init ./action.yml                # writes action.test.ts with no impo
 # actharness types — deferred (post-v0.1, subcommand reserved)
 ```
 
-`actharness test` injects `describe`, `it`, `test`, `before`, `after`, `beforeEach`, `afterEach`, `actharness`, and `expect` into `globalThis` before running each test file — no imports needed in test files. Each file runs in its own worker (via `node:test` parallel mode). Coverage is managed by the CLI; no `setupFiles` or `globalTeardown` config is needed.
+`actharness test` injects `describe`, `it`, `test`, `before`, `after`, `beforeEach`, `afterEach`, `beforeAll`, `afterAll`, `actharness`, and `expect` into `globalThis` before running each test file — no imports needed in test files. Each file runs in its own worker (via `node:test` parallel mode). Coverage is managed by the CLI; no `setupFiles` or `globalTeardown` config is needed.
 
 ---
 
@@ -793,6 +849,7 @@ actharness init ./action.yml            # writes action.test.ts with a runnable 
 `actharness run` honors the same `ActharnessOptions` (e.g. `--container docker`, `--unmocked-uses error`, `--no-freeze-time`), so what you see on the CLI is what a test sees.
 
 ### Mocking on the CLI — one surface, never a second DSL
+
 The CLI has **no mocking language of its own**. Beyond a flag or two it drives the *same* `mock()` API your tests use, so mocks are authored once and reused. Scales by how much you mock:
 
 ```bash
@@ -812,6 +869,7 @@ actharness run ./action.yml --mock-file mocks.yml
 ```
 
 **`--mock-file` (declarative, static only):**
+
 ```yaml
 # mocks.yml
 uses:
@@ -825,6 +883,7 @@ shell:
 ```
 
 **`--setup` (the same API as a test — dynamic, GitHub API, shell, anything):**
+
 ```ts
 // mocks.ts  (loaded via tsx/jiti)
 import { actharness } from 'actharness';
@@ -835,7 +894,9 @@ export default function setup() {
   actharness.mockGitHubApi({ 'GET /repos/{owner}/{repo}': { default_branch: 'main' } });
 }
 ```
+
 The same `setup()` is imported by the test, so mocks live in one place:
+
 ```ts
 import setup from './mocks';
 setup();                             // registers mocks on the shared actharness registry

@@ -1,5 +1,5 @@
 // Mock-based tests for ShellSandbox — covers shell types not available on this machine
-// (pwsh, powershell, python) and the code=null signal-exit edge case.
+// (pwsh, powershell, python, cmd) and the code=null signal-exit edge case.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventEmitter } from 'node:events';
@@ -62,6 +62,16 @@ describe('ShellSandbox — mocked shell types', () => {
     const [bin, args] = vi.mocked(spawn).mock.calls[0]!;
     expect(bin).toBe('python');
     expect(String(args[0])).toMatch(/\.py$/);
+  });
+
+  it('cmd shell: spawn called with cmd bin, /C flags, and .cmd extension', async () => {
+    const sandbox = new ShellSandbox();
+    await sandbox.shell({ script: 'echo hi', shell: 'cmd', env: {}, cwd: '/' });
+    const [bin, args] = vi.mocked(spawn).mock.calls[0]!;
+    expect(bin).toBe('cmd');
+    expect(args).toEqual(expect.arrayContaining(['/D', '/E:ON', '/V:OFF', '/S', '/C']));
+    const callArg = (args as string[]).find((a) => a.startsWith('CALL '));
+    expect(callArg).toMatch(/\.cmd"$/);
   });
 
   it('code=null: exitCode falls back to 1 when process dies by signal (timedOut=false)', async () => {

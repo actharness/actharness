@@ -1,0 +1,12 @@
+name: With Python Run
+runs:
+  using: composite
+  steps:
+    - id: step1
+      shell: python3
+      run: |
+        import os
+        if os.environ.get('FLAG'):
+            print('yes')
+        else:
+            print('no')

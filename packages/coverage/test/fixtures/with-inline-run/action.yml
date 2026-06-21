@@ -1,0 +1,6 @@
+name: With Inline Run
+runs:
+  using: composite
+  steps:
+    - run: echo hi
+      shell: sh

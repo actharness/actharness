@@ -1,0 +1,10 @@
+name: With Sh Multiline Run
+runs:
+  using: composite
+  steps:
+    - id: step1
+      shell: sh
+      run: |
+        echo "line1"
+        echo "line2"
+        echo "line3"

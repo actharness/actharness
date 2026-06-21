@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { join } from 'node:path';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { parseAction, parseActionYaml } from '../src/parser.js';
+import { parseDocument, YAMLMap, Scalar, Pair } from 'yaml';
+import { parseAction, parseActionYaml, scalarRange, strRecord, parseInputs } from '../src/parser.js';
 import { ParseError, ConfigError } from '../src/errors.js';
 
 const FIXTURES = join(import.meta.dirname, 'fixtures');
@@ -69,8 +70,9 @@ describe('parseAction', () => {
     expect(() => parseAction('/nonexistent/path/action.yml')).toThrow(ParseError);
   });
 
-  it('throws ConfigError for node20 executor', () => {
-    expect(() => parseAction(join(FIXTURES, 'node-action'))).toThrow(ConfigError);
+  it('parses a node22 action without error', () => {
+    const action = parseAction(join(FIXTURES, 'node-action'));
+    expect(action.runs.using).toBe('node22');
   });
 
   it('accepts .yml path directly', () => {
@@ -364,6 +366,28 @@ runs:
     expect(action.runs.steps![0]?.with?.['token']).toBe('');
   });
 
+  it('scalarRange returns undefined when key is absent from the map', () => {
+    const doc = parseDocument('key: value', { keepSourceTokens: true });
+    const map = doc.contents as YAMLMap;
+    expect(scalarRange(map, 'missing')).toBeUndefined();
+  });
+
+  it('strRecord skips pair when value node is null', () => {
+    const outer = new YAMLMap();
+    const inner = new YAMLMap();
+    inner.items.push(new Pair(new Scalar('key'), null) as unknown as typeof inner.items[0]);
+    outer.items.push(new Pair(new Scalar('env'), inner) as unknown as typeof outer.items[0]);
+    expect(strRecord(outer, 'env')).toEqual({});
+  });
+
+  it('parseInputs does not set _range when input nodes lack source range', () => {
+    const inputs = new YAMLMap();
+    const def = new YAMLMap();
+    inputs.items.push(new Pair(new Scalar('myinput'), def) as unknown as typeof inputs.items[0]);
+    const result = parseInputs(inputs);
+    expect(result?.['myinput']?._range).toBeUndefined();
+  });
+
   it('parses step continue-on-error as string expression', () => {
     const yaml = `
 name: T
@@ -392,4 +416,5 @@ runs:
     const step = action.runs.steps![0]!;
     expect(step['timeout-minutes']).toBe(5);
   });
+
 });

@@ -1,0 +1,16 @@
+name: Network Mock — bash HTTP
+description: Fixture A — plain HTTP via curl
+
+outputs:
+  body:
+    description: response body from curl
+    value: ${{ steps.fetch.outputs.body }}
+
+runs:
+  using: composite
+  steps:
+    - id: fetch
+      shell: bash
+      run: |
+        body=$(curl -sf http://example.com/api)
+        echo "body=$body" >> "$GITHUB_OUTPUT"

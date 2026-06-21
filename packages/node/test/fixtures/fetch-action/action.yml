@@ -1,0 +1,8 @@
+name: 'Fetch Action'
+description: 'actharness/node fixture — uses native fetch to hit an API endpoint.'
+outputs:
+  body:
+    description: 'Response body text'
+runs:
+  using: 'node22'
+  main: 'index.js'

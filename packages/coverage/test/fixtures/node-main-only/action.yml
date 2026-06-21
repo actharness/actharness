@@ -1,0 +1,4 @@
+name: Node Main Only
+runs:
+  using: node22
+  main: index.js

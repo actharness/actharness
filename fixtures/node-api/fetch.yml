@@ -1,0 +1,10 @@
+name: Fetch Action
+description: Integration fixture for mockNetwork — uses native fetch.
+
+outputs:
+  value:
+    description: value from response JSON
+
+runs:
+  using: node22
+  main: dist/fetch.js

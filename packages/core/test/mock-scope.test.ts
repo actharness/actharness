@@ -10,6 +10,7 @@ import {
   runInDescribeScope,
   runInTestScope,
   globalMock,
+  globalMockOnce,
   globalResetMocks,
 } from '../src/mock-scope.js';
 
@@ -70,6 +71,21 @@ describe('ActionMockHandle — resolve()', () => {
     expect(r.outputs['b']).toBe('override');
   });
 
+  it('defaults to empty env', async () => {
+    const h = new ActionMockHandle();
+    const r = await h.resolve({ with: {}, env: {} });
+    expect(r.env).toEqual({});
+  });
+
+  it('mockImplementation returning env merges with base env', async () => {
+    const h = new ActionMockHandle();
+    h._env = { BASE: 'base' };
+    h.mockImplementation(async () => ({ env: { EXTRA: 'extra' } }));
+    const r = await h.resolve({ with: {}, env: {} });
+    expect(r.env['BASE']).toBe('base');
+    expect(r.env['EXTRA']).toBe('extra');
+  });
+
   it('mockImplementationOnce fires only the first time', async () => {
     const h = new ActionMockHandle();
     h.mockOutputs({ val: 'base' });
@@ -83,7 +99,7 @@ describe('ActionMockHandle — resolve()', () => {
   it('mockImplementation receiving null result falls back to base', async () => {
     const h = new ActionMockHandle();
     h.mockOutputs({ val: 'base' });
-    h.mockImplementation(async () => null as unknown as undefined);
+    h.mockImplementation(() => null as unknown as void);
     const r = await h.resolve({ with: {}, env: {} });
     expect(r.outputs['val']).toBe('base');
   });
@@ -101,6 +117,38 @@ describe('ActionMockHandle — clear()', () => {
     const r = await h.resolve({ with: {}, env: {} });
     expect(r.conclusion).toBe('success');
     expect(r.outputs).toEqual({});
+  });
+
+  it('resets _hasPersistentRegistration so isEmpty() is true after clear', () => {
+    const h = new ActionMockHandle();
+    h._hasPersistentRegistration = true;
+    h.clear();
+    expect(h.isEmpty()).toBe(true);
+  });
+});
+
+describe('ActionMockHandle — isEmpty()', () => {
+  it('is true on a fresh handle', () => {
+    expect(new ActionMockHandle().isEmpty()).toBe(true);
+  });
+
+  it('is false when _hasPersistentRegistration is set', () => {
+    const h = new ActionMockHandle();
+    h._hasPersistentRegistration = true;
+    expect(h.isEmpty()).toBe(false);
+  });
+
+  it('is false when once queue has entries', () => {
+    const h = new ActionMockHandle();
+    h.mockImplementationOnce(() => undefined);
+    expect(h.isEmpty()).toBe(false);
+  });
+
+  it('is true once the once queue is drained and no persistent registration', async () => {
+    const h = new ActionMockHandle();
+    h.mockImplementationOnce(() => undefined);
+    await h.resolve({ with: {}, env: {} });
+    expect(h.isEmpty()).toBe(true);
   });
 });
 
@@ -128,11 +176,67 @@ describe('ScopeRegistry.mock()', () => {
     expect(r.outputs['result']).toBe('42');
   });
 
+  it('accepts an ActionMockDef with env', async () => {
+    const reg = new ScopeRegistry();
+    const h = reg.mock('a/b@v1', { env: { MY_VAR: 'hello' } }) as ActionMockHandle;
+    const r = await h.resolve({ with: {}, env: {} });
+    expect(r.env['MY_VAR']).toBe('hello');
+  });
+
   it('accepts an ActionMockImpl function', async () => {
     const reg = new ScopeRegistry();
     const h = reg.mock('a/b@v1', async () => ({ outputs: { x: 'fn' } })) as ActionMockHandle;
     const r = await h.resolve({ with: {}, env: {} });
     expect(r.outputs['x']).toBe('fn');
+  });
+});
+
+describe('ScopeRegistry.mockOnce()', () => {
+  it('creates a handle that is consumed after one resolve', async () => {
+    const reg = new ScopeRegistry();
+    const h = reg.mockOnce('a/b@v1', { outputs: { val: 'once' } }) as ActionMockHandle;
+    const r1 = await h.resolve({ with: {}, env: {} });
+    expect(r1.outputs['val']).toBe('once');
+    expect(h.isEmpty()).toBe(true);
+  });
+
+  it('falls back to persistent after once is consumed', async () => {
+    const reg = new ScopeRegistry();
+    reg.mock('a/b@v1', { outputs: { val: 'persistent' } });
+    reg.mockOnce('a/b@v1', { outputs: { val: 'once' } });
+    const h = reg.get('a/b@v1')!;
+    const r1 = await h.resolve({ with: {}, env: {} });
+    const r2 = await h.resolve({ with: {}, env: {} });
+    expect(r1.outputs['val']).toBe('once');
+    expect(r2.outputs['val']).toBe('persistent');
+  });
+
+  it('once queue is FIFO across multiple mockOnce calls', async () => {
+    const reg = new ScopeRegistry();
+    reg.mockOnce('a/b@v1', { outputs: { val: 'first' } });
+    reg.mockOnce('a/b@v1', { outputs: { val: 'second' } });
+    const h = reg.get('a/b@v1')!;
+    const r1 = await h.resolve({ with: {}, env: {} });
+    const r2 = await h.resolve({ with: {}, env: {} });
+    expect(r1.outputs['val']).toBe('first');
+    expect(r2.outputs['val']).toBe('second');
+    expect(h.isEmpty()).toBe(true);
+  });
+
+  it('accepts an ActionMockImpl function', async () => {
+    const reg = new ScopeRegistry();
+    reg.mockOnce('a/b@v1', async () => ({ outputs: { x: 'fn-once' } }));
+    const h = reg.get('a/b@v1')!;
+    const r = await h.resolve({ with: {}, env: {} });
+    expect(r.outputs['x']).toBe('fn-once');
+    expect(h.isEmpty()).toBe(true);
+  });
+
+  it('returns the same handle for the same ref as mock()', () => {
+    const reg = new ScopeRegistry();
+    const h1 = reg.mock('a/b@v1');
+    const h2 = reg.mockOnce('a/b@v1', { outputs: { x: '1' } });
+    expect(h1).toBe(h2);
   });
 });
 
@@ -219,6 +323,24 @@ describe('lookupMock()', () => {
     });
   });
 
+  it('returns undefined when handle is empty (once consumed, no persistent)', async () => {
+    const scope = new ScopeRegistry();
+    scope.mockOnce('a/b@v1', { outputs: { val: 'once' } });
+    const h = scope.get('a/b@v1')!;
+    await h.resolve({ with: {}, env: {} });
+    scopeALS.run([scope], () => {
+      expect(lookupMock('a/b@v1')).toBeUndefined();
+    });
+  });
+
+  it('returns handle when once queue still has entries', () => {
+    const scope = new ScopeRegistry();
+    scope.mockOnce('a/b@v1', { outputs: { val: 'once' } });
+    scopeALS.run([scope], () => {
+      expect(lookupMock('a/b@v1')).toBeDefined();
+    });
+  });
+
   it('supports three-level scope chain (file → describe → test)', () => {
     const file = new ScopeRegistry();
     const describe = new ScopeRegistry();
@@ -290,12 +412,23 @@ describe('runInTestScope()', () => {
 
 // ── globalMock / globalResetMocks ─────────────────────────────────────────────
 
-describe('globalMock() / globalResetMocks()', () => {
+describe('globalMock() / globalMockOnce() / globalResetMocks()', () => {
   it('globalMock registers in the current scope', () => {
     const scope = new ScopeRegistry();
     scopeALS.run([scope], () => {
       const h = globalMock('a/b@v1');
       expect(scope.get('a/b@v1')).toBe(h);
+    });
+  });
+
+  it('globalMockOnce registers a once entry in the current scope', async () => {
+    const scope = new ScopeRegistry();
+    await scopeALS.run([scope], async () => {
+      globalMockOnce('a/b@v1', { outputs: { val: 'once' } });
+      const h = scope.get('a/b@v1')!;
+      const r = await h.resolve({ with: {}, env: {} });
+      expect(r.outputs['val']).toBe('once');
+      expect(h.isEmpty()).toBe(true);
     });
   });
 

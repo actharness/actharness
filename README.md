@@ -75,6 +75,15 @@ describe('release action', () => {
 });
 ```
 
+Use `mockOnce` to override exactly one invocation, then fall back to the persistent mock (or to unmocked behaviour if none is registered):
+
+```ts
+actharness.mock('actions/checkout@v4', { outputs: { ref: 'main' } });
+actharness.mockOnce('actions/checkout@v4', { outputs: { ref: 'feature' } }); // first call only
+```
+
+Network calls inside JS and shell steps are intercepted via `mockNetwork` / `mockGitHubApi` (and their `*Once` siblings). `actharness.resetMocks()` clears all mocks and once-queues — call it in `afterEach`.
+
 ## Matchers
 
 ### Result matchers
@@ -137,6 +146,7 @@ describe('context', () => {
 ```bash
 npx actharness test --coverage
 npx actharness test --coverage --threshold steps=100 --threshold ifBranches=80
+npx actharness test --coverage --threshold bashShellLines=80 --threshold jsLines=90
 ```
 
 Emits Istanbul-compatible reports. Supported reporters: `text`, `text-summary`, `lcov`, `lcovonly`, `html`, `html-spa`, `json`, `json-summary`, `cobertura`, `clover`, `teamcity`, `none`. Coverage tracks which steps ran, which were skipped, and how each `if:` branch resolved.
@@ -144,7 +154,7 @@ Emits Istanbul-compatible reports. Supported reporters: `text`, `text-summary`, 
 ## CLI
 
 ```bash
-npx actharness test [pattern] [--coverage] [--reporter <name>] [--coverage-dir <dir>] [--threshold k=n]
+npx actharness test [pattern] [--coverage] [--reporter <name>] [--coverage-dir <dir>] [--threshold k=n] [--workers <n>]
 npx actharness run <action.yml> [--input k=v] [--mock ref='{"outputs":{}}'] [--json]
 npx actharness init <action.yml>   # scaffold action.test.ts
 ```
@@ -159,7 +169,20 @@ export default {
   coverage: true,
   reporters: ['lcov', 'html', 'text'],
   coverageDir: 'coverage',
-  thresholds: { steps: 100, ifBranches: 80 },
+  workers: 4,
+  thresholds: {
+    // action
+    steps: 100,
+    ifBranches: 80,
+    // shell
+    shShellLines: 80,
+    bashShellLines: 80,
+    pwshShellLines: 80,
+    pythonShellLines: 80,
+    nodeShellLines: 80,
+    // node .js files
+    jsLines: 90,
+  },
   patterns: ['**/*.test.ts'],
 };
 ```
@@ -168,10 +191,13 @@ export default {
 
 | Package | Role |
 | --- | --- |
-| `actharness` | Meta-package — re-exports core, matchers, fixtures, composite |
+| `actharness` | Meta-package — re-exports core, matchers, fixtures, composite, node |
 | `@actharness/cli` | `actharness test`, `actharness run`, `actharness init` |
 | `@actharness/core` | Parser, executor registry, mock resolver, run sink |
-| `@actharness/composite` | Composite executor + shell sandbox |
+| `@actharness/composite` | Composite executor — step loop, `uses:` dispatch, env-file threading |
+| `@actharness/shell` | Shell sandbox — bash, sh, pwsh, python, node subprocess execution |
+| `@actharness/node` | Node executor — `runs.using: node<N>` actions |
+| `@actharness/network-mock` | `mockNetwork` / `mockGitHubApi` (and `*Once` siblings) — proxy path for shells, IPC path for node |
 | `@actharness/matchers` | `expect()` + result/step/mock matchers |
 | `@actharness/fixtures` | GitHub context and event factories |
 | `@actharness/coverage` | Istanbul-compatible step/branch/input coverage |

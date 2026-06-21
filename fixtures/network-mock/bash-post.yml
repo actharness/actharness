@@ -1,0 +1,20 @@
+name: Network Mock — bash POST with headers and body
+description: Fixture I — requestHeaders and requestBody recorded
+
+outputs:
+  body:
+    description: response body
+    value: ${{ steps.fetch.outputs.body }}
+
+runs:
+  using: composite
+  steps:
+    - id: fetch
+      shell: bash
+      run: |
+        body=$(curl -sf -X POST \
+          -H 'Authorization: Bearer token' \
+          -H 'Content-Type: application/json' \
+          -d '{"x":1}' \
+          https://example.com/api)
+        echo "body=$body" >> "$GITHUB_OUTPUT"

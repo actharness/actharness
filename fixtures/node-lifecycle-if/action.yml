@@ -1,0 +1,19 @@
+name: Node Lifecycle If
+description: Node action integration fixture — pre-if/post-if branch coverage in the HTML reporter.
+
+inputs:
+  run-pre:
+    description: Whether the pre phase should run
+    default: 'false'
+
+outputs:
+  ran:
+    description: Whether main ran
+
+runs:
+  using: node22
+  pre: dist/pre.js
+  pre-if: ${{ inputs.run-pre == 'true' }}
+  main: dist/index.js
+  post: dist/post.js
+  post-if: failure()

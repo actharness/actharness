@@ -1,0 +1,22 @@
+name: Pwsh Global Isolation
+description: "Verifies that $global: state set in one step is not visible in the next step (Runspace-per-step isolation)."
+author: actharness
+
+outputs:
+  step2-saw:
+    description: Value of $global:MyState as seen by step 2; empty means isolation is working
+    value: ${{ steps.read.outputs.step2-saw }}
+
+runs:
+  using: composite
+  steps:
+    - id: write
+      shell: pwsh
+      run: |
+        $global:MyState = 'leaked'
+
+    - id: read
+      shell: pwsh
+      run: |
+        $val = if ($null -ne $global:MyState) { $global:MyState } else { '' }
+        Add-Content -Path $Env:GITHUB_OUTPUT -Value "step2-saw=$val"

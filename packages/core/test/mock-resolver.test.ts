@@ -7,7 +7,7 @@ import {
   DEFAULT_MAX_DEPTH,
 } from '../src/mock-resolver.js';
 import { ScopeRegistry, scopeALS } from '../src/mock-scope.js';
-import { MissingMockError, CycleError, MaxDepthError } from '../src/errors.js';
+import { MissingMockError, ConfigError, CycleError, MaxDepthError } from '../src/errors.js';
 
 const NO_OPTS: ActharnessOptions = {};
 const ACTION_DIR = '/fake/action';
@@ -64,10 +64,10 @@ describe('MockRegistry.resolve — policy (no explicit mock)', () => {
     expect(res.kind).toBe('noop');
   });
 
-  it('throws MissingMockError when unmockedUses=real for remote ref', () => {
+  it('throws ConfigError when unmockedUses=real for remote ref', () => {
     expect(() =>
       new MockRegistry().resolve('actions/checkout@v4', ACTION_DIR, { unmockedUses: 'real' }),
-    ).toThrow(MissingMockError);
+    ).toThrow(ConfigError);
   });
 
   it('object unmockedUses without remote key defaults remotePolicy to noop', () => {

@@ -111,10 +111,11 @@ async function runAction(
     input.determinism ?? options.determinism,
   );
 
-  const workspaceBase = options.workspace === 'temp' || !options.workspace
-    ? tmpdir()
-    : options.workspace;
-  const workspace = mkdtempSync(join(workspaceBase, 'actharness-ws-'));
+  // Workspace starts empty — `options.workspace`, if set, is only copied in once a
+  // checkout-like `uses:` step actually executes (see step-runner.ts's execUsesStep),
+  // matching real GitHub Actions: the workspace has no repo content until checkout runs.
+  const workspaceParent = options.tempDir ?? tmpdir();
+  const workspace = mkdtempSync(join(workspaceParent, 'actharness-ws-'));
   mkdirSync(workspace, { recursive: true });
 
   const initialJobStatus = input.jobStatus ?? 'success';
@@ -152,6 +153,7 @@ async function runAction(
     context: store,
     protocol,
     mocks: sharedRegistry,
+    options,
     sandbox: {
       async shell(_opts) {
         throw new ConfigError(
@@ -192,8 +194,9 @@ async function runAction(
 
   notifyRunSink(result, {
     sourceFile: manifest._file,
-    actionDir: manifest._dir,
     inputsExercised,
+    jsCoverage: executionResult.jsCoverage,
+    shellCoverage: executionResult.shellCoverage,
   });
 
   return result;
@@ -223,8 +226,12 @@ export function _dirFromStack(stack: string): string {
  *                calling file, so actharness('./action.yml') always works.
  */
 export function actharness(source: string, options: ActharnessOptions = {}): Action {
+  const callerDir = _dirFromStack(new Error().stack!);
   if (source.startsWith('./') || source.startsWith('../')) {
-    source = resolve(_dirFromStack(new Error().stack!), source);
+    source = resolve(callerDir, source);
+  }
+  if (options.workspace && (options.workspace.startsWith('./') || options.workspace.startsWith('../'))) {
+    options = { ...options, workspace: resolve(callerDir, options.workspace) };
   }
   const manifest = parseAction(source);
   return new ActionImpl(manifest, options);

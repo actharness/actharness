@@ -10,19 +10,24 @@ import type { ActionMockDef, ActionMockImpl, ActionMock, ActionMockCall } from '
 
 export class ActionMockHandle implements ActionMock {
   private _calls: ActionMockCall[] = [];
-  private _outputs: Record<string, string> = {};
+  _outputs: Record<string, string> = {};
+  _env: Record<string, string> = {};
   private _conclusion: 'success' | 'failure' = 'success';
-  private _impl: ActionMockImpl | null = null;
+  _impl: ActionMockImpl | null = null;
   private _onceImpls: ActionMockImpl[] = [];
+  _hasPersistentRegistration = false;
 
   get calls(): ActionMockCall[] { return this._calls; }
   get called(): boolean { return this._calls.length > 0; }
   get callCount(): number { return this._calls.length; }
 
+  isEmpty(): boolean {
+    return !this._hasPersistentRegistration && this._onceImpls.length === 0;
+  }
+
   mockOutputs(outputs: Record<string, string>): this {
     this._outputs = { ...outputs };
     this._impl = null;
-    this._onceImpls = [];
     return this;
   }
 
@@ -44,31 +49,36 @@ export class ActionMockHandle implements ActionMock {
   clear(): void {
     this._calls = [];
     this._outputs = {};
+    this._env = {};
     this._conclusion = 'success';
     this._impl = null;
     this._onceImpls = [];
+    this._hasPersistentRegistration = false;
   }
 
   async resolve(callInput: { with: Record<string, string>; env: Record<string, string> }): Promise<{
     outputs: Record<string, string>;
+    env: Record<string, string>;
     conclusion: 'success' | 'failure';
   }> {
     const onceImpl = this._onceImpls.shift();
     const impl = onceImpl ?? this._impl;
 
     let outputs = { ...this._outputs };
+    let env = { ...this._env };
     let conclusion = this._conclusion;
 
     if (impl) {
       const result = await impl(callInput);
       if (result) {
         if (result.outputs) outputs = { ...outputs, ...result.outputs };
+        if (result.env) env = { ...env, ...result.env };
         if (result.conclusion) conclusion = result.conclusion;
       }
     }
 
     this._calls.push({ with: callInput.with, env: callInput.env, outputs });
-    return { outputs, conclusion };
+    return { outputs, env, conclusion };
   }
 }
 
@@ -83,11 +93,29 @@ export class ScopeRegistry {
       handle = new ActionMockHandle();
       this._mocks.set(ref, handle);
     }
+    handle._hasPersistentRegistration = true;
     if (typeof def === 'function') {
-      handle.mockImplementation(def);
+      handle._impl = def;
     } else if (def) {
-      if (def.outputs) handle.mockOutputs(def.outputs);
+      handle._impl = null;
+      if (def.outputs) handle._outputs = { ...def.outputs };
+      if (def.env) handle._env = { ...def.env };
       if (def.conclusion) handle.mockConclusion(def.conclusion);
+    }
+    return handle;
+  }
+
+  mockOnce(ref: string, def?: ActionMockDef | ActionMockImpl): ActionMock {
+    let handle = this._mocks.get(ref);
+    if (!handle) {
+      handle = new ActionMockHandle();
+      this._mocks.set(ref, handle);
+    }
+    if (typeof def === 'function') {
+      handle.mockImplementationOnce(def);
+    } else {
+      const captured = def;
+      handle.mockImplementationOnce(() => captured);
     }
     return handle;
   }
@@ -124,12 +152,12 @@ export function currentStack(): ScopeRegistry[] {
   return scopeALS.getStore() ?? [fileRootRegistry];
 }
 
-/** Walk innermost-first; return first handle that matches the ref. */
+/** Walk innermost-first; return first non-empty handle that matches the ref. */
 export function lookupMock(ref: string): ActionMockHandle | undefined {
   const stack = scopeALS.getStore() ?? [fileRootRegistry];
   for (let i = stack.length - 1; i >= 0; i--) {
     const found = stack[i]!.get(ref);
-    if (found) return found;
+    if (found && !found.isEmpty()) return found;
   }
   return undefined;
 }
@@ -152,6 +180,10 @@ export async function runInTestScope(parentStack: ScopeRegistry[], fn: () => voi
 
 export function globalMock(ref: string, def?: ActionMockDef | ActionMockImpl): ActionMock {
   return currentScope().mock(ref, def);
+}
+
+export function globalMockOnce(ref: string, def?: ActionMockDef | ActionMockImpl): ActionMock {
+  return currentScope().mockOnce(ref, def);
 }
 
 export function globalResetMocks(): void {

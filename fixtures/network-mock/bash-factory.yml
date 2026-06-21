@@ -1,0 +1,11 @@
+name: Network Mock — bash factory two calls
+description: Fixture H — two sequential curl calls in one step to test per-call response factory
+
+runs:
+  using: composite
+  steps:
+    - id: calls
+      shell: bash
+      run: |
+        curl -sf https://example.com/api
+        curl -sf https://example.com/api

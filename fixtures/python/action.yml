@@ -1,0 +1,164 @@
+name: Python Shell Demo
+description: "Exercises shell: python3 — inputs, outputs, env, GITHUB_ENV, GITHUB_PATH, if:, continue-on-error, working-directory, annotations, and failure path."
+author: actharness
+
+inputs:
+  name:
+    description: Name to greet. Optional — defaults to World.
+    default: "World"
+  should-fail:
+    description: When true, triggers a step failure to test failure() condition.
+    required: true
+
+outputs:
+  greeting:
+    description: Greeting produced from the name input
+    value: ${{ steps.greet.outputs.greeting }}
+  env-value:
+    description: Value read from the seeded env
+    value: ${{ steps.read-env.outputs.env-value }}
+  step-env-value:
+    description: Value produced by the step-level env override
+    value: ${{ steps.override-env.outputs.step-env-value }}
+  restored-env:
+    description: Seed env value as seen by the step after the override
+    value: ${{ steps.restored-env-step.outputs.restored-env }}
+  threaded-env:
+    description: Value written to GITHUB_ENV in one step and read in the next
+    value: ${{ steps.read-github-env.outputs.threaded-env }}
+  cwd-name:
+    description: Basename of the working directory used by the working-directory step
+    value: ${{ steps.check-cwd.outputs.cwd-name }}
+  has-custom-bin:
+    description: Whether /custom/bin was prepended to PATH via GITHUB_PATH
+    value: ${{ steps.check-path.outputs.has-custom-bin }}
+  has-custom-bin-explicit:
+    description: Same check using explicit if/else block instead of ternary
+    value: ${{ steps.check-path-explicit.outputs.has-custom-bin-explicit }}
+
+runs:
+  using: composite
+  steps:
+    - id: greet
+      shell: python3
+      run: |
+        import os
+        name = os.environ.get('INPUT_NAME', 'World')
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f'greeting=Hello, {name}!\n')
+
+    - id: read-env
+      shell: python3
+      run: |
+        import os
+        val = os.environ.get('TEST_ENV', '')
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f'env-value={val}\n')
+
+    - id: override-env
+      shell: python3
+      env:
+        TEST_ENV: "https://staging.example.com"
+      run: |
+        import os
+        val = os.environ.get('TEST_ENV', '')
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f'step-env-value={val}\n')
+
+    - id: restored-env-step
+      shell: python3
+      run: |
+        import os
+        val = os.environ.get('TEST_ENV', '')
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f'restored-env={val}\n')
+
+    - id: set-github-env
+      shell: python3
+      run: |
+        import os
+        with open(os.environ['GITHUB_ENV'], 'a') as f:
+            f.write('THREADED_VALUE=from-set-github-env\n')
+
+    - id: read-github-env
+      shell: python3
+      run: |
+        import os
+        val = os.environ.get('THREADED_VALUE', '')
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f'threaded-env={val}\n')
+
+    - id: setup-subdir
+      shell: python3
+      run: |
+        import os
+        os.makedirs('subdir', exist_ok=True)
+
+    - id: check-cwd
+      shell: python3
+      working-directory: ./subdir
+      run: |
+        import os
+        name = os.path.basename(os.getcwd())
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f'cwd-name={name}\n')
+
+    - id: add-path
+      shell: python3
+      run: |
+        import os
+        with open(os.environ['GITHUB_PATH'], 'a') as f:
+            f.write('/custom/bin\n')
+
+    - id: check-path
+      shell: python3
+      run: |
+        import os
+        path = os.environ.get('PATH', '')
+        result = 'true' if '/custom/bin' in path else 'false'
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f'has-custom-bin={result}\n')
+
+    - id: check-path-explicit
+      shell: python3
+      run: |
+        import os
+        path = os.environ.get('PATH', '')
+        if '/custom/bin' in path:
+            result = 'true'
+        else:
+            result = 'false'
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f'has-custom-bin-explicit={result}\n')
+
+    - id: flaky
+      shell: python3
+      continue-on-error: true
+      run: |
+        import sys
+        sys.exit(1)
+
+    - id: warn
+      shell: python3
+      run: |
+        print('::warning::low disk space')
+
+    - id: trigger-failure
+      if: ${{ inputs.should-fail == 'true' }}
+      shell: python3
+      run: |
+        import sys
+        print('::error::abort requested')
+        sys.exit(1)
+
+    - id: on-failure
+      if: ${{ failure() }}
+      shell: python3
+      run: |
+        print('failure handler ran')
+
+    - id: always-runs
+      if: ${{ always() }}
+      shell: python3
+      run: |
+        print('always handler ran')

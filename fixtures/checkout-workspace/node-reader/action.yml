@@ -1,0 +1,10 @@
+name: Node Reader
+description: Reads data.txt via process.env.GITHUB_WORKSPACE.
+
+outputs:
+  value:
+    description: contents of data.txt
+
+runs:
+  using: node22
+  main: dist/index.js

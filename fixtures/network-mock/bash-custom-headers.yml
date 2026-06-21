@@ -1,0 +1,21 @@
+name: Network Mock — bash custom response headers
+description: Fixture N — curl receives a custom Content-Type header set via the headers arg
+
+outputs:
+  body:
+    description: raw response body
+    value: ${{ steps.fetch.outputs.body }}
+  content_type:
+    description: Content-Type header from the response
+    value: ${{ steps.fetch.outputs.content_type }}
+
+runs:
+  using: composite
+  steps:
+    - id: fetch
+      shell: bash
+      run: |
+        body=$(curl -sf https://api.example.com/html)
+        ct=$(curl -sf -o /dev/null -w '%{content_type}' https://api.example.com/html)
+        echo "body=$body" >> "$GITHUB_OUTPUT"
+        echo "content_type=$ct" >> "$GITHUB_OUTPUT"

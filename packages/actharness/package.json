@@ -38,6 +38,7 @@
     "@actharness/cli": "workspace:*",
     "@actharness/composite": "workspace:*",
     "@actharness/core": "workspace:*",
+    "@actharness/node": "workspace:*",
     "@actharness/fixtures": "workspace:*",
     "@actharness/matchers": "workspace:*",
     "@actharness/types": "workspace:*"

@@ -7,7 +7,7 @@ export default defineConfig([
     dts: false,
     clean: true,
     sourcemap: true,
-    target: 'node20',
+    target: 'node22',
     banner: { js: '#!/usr/bin/env node' },
   },
   {
@@ -16,7 +16,7 @@ export default defineConfig([
     dts: true,
     clean: false,
     sourcemap: true,
-    target: 'node20',
+    target: 'node22',
   },
   {
     entry: { lifecycle: 'src/lifecycle.ts' },
@@ -24,7 +24,7 @@ export default defineConfig([
     dts: true,
     clean: false,
     sourcemap: true,
-    target: 'node20',
+    target: 'node22',
   },
   {
     entry: { 'runner-bridge': 'src/runner-bridge.ts' },
@@ -32,6 +32,6 @@ export default defineConfig([
     dts: false,
     clean: false,
     sourcemap: true,
-    target: 'node20',
+    target: 'node22',
   },
 ]);

@@ -2,7 +2,7 @@
 // Steps → statements; if: conditions → branches.
 
 import { readFileSync } from 'node:fs';
-import type { ParsedAction, StepResult } from '@actharness/types';
+import type { ParsedAction, StepResult, NodeRange } from '@actharness/types';
 import { createFileCoverage } from './istanbul-compat.js';
 import type { FileCoverage } from './istanbul-compat.js';
 import { nodeRangeToIstanbul } from './source-map.js';
@@ -15,6 +15,12 @@ export interface IstanbulBranchMapping {
   line: number;
   _stepId?: string;
   _expression?: string;
+  _falseBranchImpossible?: boolean;
+}
+
+function _isAlwaysTrueExpression(expr: string): boolean {
+  const t = expr.trim();
+  return t === 'always()' || t === '${{ always() }}';
 }
 
 interface IstanbulFunctionMapping {
@@ -93,7 +99,7 @@ export function buildActionCoverage(
     // bId uses a sequential counter (not step index) to match Istanbul's internal renormalisation.
     if (step.if !== undefined && step.if !== 'success()') {
       const bId = String(branchCounter++);
-      branchMap[bId] = {
+      const entry: IstanbulBranchMapping = {
         loc: range,
         type: 'if',
         locations: [range, range],
@@ -101,9 +107,59 @@ export function buildActionCoverage(
         _stepId: stepId,
         _expression: step.if,
       };
+      if (_isAlwaysTrueExpression(step.if)) entry._falseBranchImpossible = true;
+      branchMap[bId] = entry;
 
       const ifResult = result?.if?.result;
       b[bId] = [ifResult === true ? 1 : 0, ifResult === false ? 1 : 0];
+    }
+  }
+
+  // Node-action phases (runs.main / pre / post) — same statement/branch model as
+  // composite steps above, keyed by phase name instead of step id.
+  if (!action.runs.steps && action.runs.main) {
+    const phases: { phase: 'pre' | 'main' | 'post'; entrypoint: string; range: NodeRange | undefined }[] = [
+      { phase: 'pre', entrypoint: action.runs.pre ?? '', range: action.runs._preRange },
+      { phase: 'main', entrypoint: action.runs.main, range: action.runs._mainRange },
+      { phase: 'post', entrypoint: action.runs.post ?? '', range: action.runs._postRange },
+    ];
+
+    let phaseIdx = 0;
+    for (const { phase, entrypoint, range: rawRange } of phases) {
+      if (!entrypoint) continue;
+      const result = stepResults.find((r) => r.id === phase);
+
+      const sId = `phase_${phaseIdx++}`;
+      const range: IstanbulRange =
+        rawRange && source
+          ? nodeRangeToIstanbul(source, rawRange.start, rawRange.end)
+          : { start: { line: 1, column: 0 }, end: { line: 1, column: 0 } };
+
+      statementMap[sId] = { ...range, _stepId: phase };
+      s[sId] = result?.ran === true ? 1 : 0;
+
+      const ifExpr = phase === 'pre' ? action.runs['pre-if'] : phase === 'post' ? action.runs['post-if'] : undefined;
+      const ifRange = phase === 'pre' ? action.runs._preIfRange : phase === 'post' ? action.runs._postIfRange : undefined;
+      if (ifExpr !== undefined) {
+        const bId = String(branchCounter++);
+        const bRange: IstanbulRange =
+          ifRange && source
+            ? nodeRangeToIstanbul(source, ifRange.start, ifRange.end)
+            : range;
+        const phaseEntry: IstanbulBranchMapping = {
+          loc: bRange,
+          type: 'if',
+          locations: [bRange, bRange],
+          line: bRange.start.line,
+          _stepId: phase,
+          _expression: ifExpr,
+        };
+        if (_isAlwaysTrueExpression(ifExpr)) phaseEntry._falseBranchImpossible = true;
+        branchMap[bId] = phaseEntry;
+
+        const ifResult = result?.if?.result;
+        b[bId] = [ifResult === true ? 1 : 0, ifResult === false ? 1 : 0];
+      }
     }
   }
 

@@ -1,0 +1,27 @@
+name: Network Mock — Python HTTPS
+description: Fixture C — HTTPS via urllib.request (stdlib, no third-party deps)
+
+outputs:
+  body:
+    description: response body
+    value: ${{ steps.fetch.outputs.body }}
+
+runs:
+  using: composite
+  steps:
+    - id: fetch
+      shell: python3
+      run: |
+        import urllib.request, os, ssl
+
+        ca = os.environ.get('SSL_CERT_FILE') or os.environ.get('CURL_CA_BUNDLE', '')
+        ctx = ssl.create_default_context()
+        if ca:
+            ctx.load_verify_locations(ca)
+
+        opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
+        with opener.open('https://api.example.com/data') as r:
+            body = r.read().decode()
+
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f'body={body}\n')

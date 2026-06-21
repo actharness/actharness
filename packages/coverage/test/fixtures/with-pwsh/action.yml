@@ -1,0 +1,7 @@
+name: With Pwsh
+runs:
+  using: composite
+  steps:
+    - id: step1
+      shell: pwsh
+      run: Write-Output "hello"
